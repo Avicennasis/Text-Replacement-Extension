@@ -110,16 +110,26 @@ function estimateStorageSize(wordMap) {
 function validateStorageQuota(wordMap) {
     const estimatedSize = estimateStorageSize(wordMap);
 
-    // Check total storage limit (browser-enforced, not ours)
+    // Check per-item limit FIRST — this is the binding constraint.
+    // All rules are stored under a single "wordMap" key, and the browser
+    // limits each storage key to QUOTA_BYTES_PER_ITEM (8 KB for sync storage).
+    // This means the combined size of ALL rules must fit within 8 KB, which
+    // is hit much sooner than the 100 KB total quota. A typical rule uses
+    // ~60 bytes, so the practical limit is roughly 100-130 rules depending
+    // on how long your original text and replacement text are.
+    if (estimatedSize > QUOTA_BYTES_PER_ITEM) {
+        const usedKB = (estimatedSize / 1024).toFixed(1);
+        const maxKB = (QUOTA_BYTES_PER_ITEM / 1024).toFixed(0);
+        return `Storage full! Your rules total ${usedKB} KB, exceeding the browser's ${maxKB} KB per-item sync limit. Please remove some rules or shorten existing ones.`;
+    }
+
+    // Check total storage limit (less likely to hit before per-item, but
+    // included as a safety net in case the extension stores additional keys
+    // in the future).
     if (estimatedSize > SYNC_QUOTA_BYTES) {
         const usedKB = (estimatedSize / 1024).toFixed(1);
         const maxKB = (SYNC_QUOTA_BYTES / 1024).toFixed(0);
-        return `Storage full! You're using ${usedKB} KB of the browser's ${maxKB} KB limit. Please remove some rules to free up space.`;
-    }
-
-    // Check per-item limit (can happen with very long replacement texts)
-    if (estimatedSize > QUOTA_BYTES_PER_ITEM) {
-        return `This rule is too large. The browser limits individual storage items to 8 KB.`;
+        return `Storage full! You're using ${usedKB} KB of the browser's ${maxKB} KB total limit. Please remove some rules to free up space.`;
     }
 
     return null; // Within limits
@@ -188,9 +198,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // If the user has two management tabs open, changes in one tab
     // will automatically refresh the other tab's UI.
     chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'sync' && changes.wordMap) {
+        if (area !== 'sync') return;
+
+        if (changes.wordMap) {
             Logger.debug('Rules changed externally — refreshing UI');
             loadWordMap();
+        }
+
+        // Keep the master switch checkbox in sync when toggled from another
+        // tab or by the content script. Without this, the manage page could
+        // show "Enabled" when the extension is actually disabled (or vice versa).
+        if (changes.extensionEnabled) {
+            const isEnabled = changes.extensionEnabled.newValue !== false;
+            document.getElementById('masterSwitch').checked = isEnabled;
+            Logger.debug('Master switch updated externally:', isEnabled);
         }
     });
 
@@ -482,8 +503,11 @@ function updateReplacement(originalText, field, newValue) {
     // VALIDATION: Prevent empty original text (would match nothing — user error)
     // Note: We intentionally allow empty replacement text — that's a valid use
     // case for deleting/removing the original text entirely from pages.
+    // We also trim whitespace from original text to prevent invisible-difference
+    // rules like " cat " vs "cat". We do NOT trim replacement text.
     if (field === 'originalText' && typeof newValue === 'string') {
-        if (!newValue || !newValue.trim()) {
+        newValue = newValue.trim();
+        if (!newValue) {
             showStatus('Original text cannot be empty!', true);
             loadWordMap(); // Reset UI to previous valid state
             return;
@@ -568,9 +592,22 @@ function updateReplacement(originalText, field, newValue) {
                 loadWordMap(); // Revert on failure
             } else {
                 Logger.debug('Word map updated successfully');
+
+                // After renaming, we MUST rebuild the entire table. Every event
+                // listener on this row (replacement input, case toggle, enabled
+                // toggle, remove button) has a closure over the OLD originalText
+                // key. Without a rebuild, those controls would silently fail
+                // because they'd try to update a key that no longer exists in
+                // storage. This is the only safe way to refresh all closures.
+                if (field === 'originalText') {
+                    loadWordMap();
+                    showStatus('Saved.');
+                    return;
+                }
+
                 // Show "Saved" toast only for text edits, not for toggle changes
                 // (toggles give instant visual feedback via the switch itself)
-                if (field === 'originalText' || field === 'replacement') {
+                if (field === 'replacement') {
                     showStatus('Saved.');
                 }
             }
@@ -592,12 +629,15 @@ function updateReplacement(originalText, field, newValue) {
  * deleting/removing the original text from pages entirely.
  */
 function addReplacement() {
-    const newOriginal = document.getElementById('newOriginal').value;
+    // Trim whitespace from original text to prevent invisible-difference
+    // rules like " cat " vs "cat" that would confuse users. We intentionally
+    // do NOT trim replacement text — the user may want leading/trailing spaces.
+    const newOriginal = document.getElementById('newOriginal').value.trim();
     const newReplacement = document.getElementById('newReplacement').value;
     const newCaseSensitive = document.getElementById('newCaseSensitive').checked;
 
     // Validate that original text is not empty or whitespace-only
-    if (!newOriginal || !newOriginal.trim()) {
+    if (!newOriginal) {
         showStatus('Original text cannot be empty!', true);
         return;
     }
@@ -841,8 +881,12 @@ function importRules(file) {
         try {
             const importData = JSON.parse(e.target.result);
 
-            // Validate top-level structure
-            if (!importData.rules || typeof importData.rules !== 'object') {
+            // Validate top-level structure.
+            // Note: We check Array.isArray separately because typeof [] === 'object'
+            // in JavaScript. An array would pass the typeof check but produce
+            // nonsensical rules when iterated with Object.entries (keys would be
+            // "0", "1", "2", etc. instead of the actual text to replace).
+            if (!importData.rules || typeof importData.rules !== 'object' || Array.isArray(importData.rules)) {
                 showStatus('Invalid file format! Please select a valid export file.', true);
                 Logger.error('Invalid import file structure:', importData);
                 return;

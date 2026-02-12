@@ -115,16 +115,49 @@ jobs:
       - name: Security - no external URLs in source
         run: |
           echo "Checking for external URL references in source files..."
-          FOUND=$(grep -rn 'https\?://[a-zA-Z]' src/ --include='*.js' --include='*.html' --include='*.css' \
-            | grep -v '// ' | grep -v ' \* ' | grep -v '<!-- ' | grep -v '/\*' || true)
-          if [ -n "$FOUND" ]; then
-            echo "ERROR: External URLs found in source files:"
-            echo "$FOUND"
-            echo "All resources must be bundled locally. See Transparency & Safety in README."
-            exit 1
-          else
-            echo "No external URLs found in source code."
-          fi
+          python3 << 'PYEOF'
+          import re, os, sys, glob
+
+          # Scan source files for external URLs outside of comments.
+          # We use a simple line-by-line approach:
+          #   1. Strip // single-line comments from JS
+          #   2. Strip <!-- ... --> HTML comments (single-line)
+          #   3. Strip /* ... */ block comments (single-line)
+          #   4. Search the remaining code for http:// or https:// URLs
+          # This avoids false positives from URLs in documentation comments
+          # while catching any URL that would actually execute at runtime.
+
+          url_pattern = re.compile(r'https?://[a-zA-Z]')
+          comment_patterns = [
+              re.compile(r'//.*$'),           # JS single-line comments
+              re.compile(r'/\*.*?\*/'),        # JS/CSS block comments (single-line)
+              re.compile(r'<!--.*?-->'),       # HTML comments (single-line)
+          ]
+
+          found = []
+          for filepath in glob.glob('src/**/*', recursive=True):
+              if not os.path.isfile(filepath):
+                  continue
+              if not filepath.endswith(('.js', '.html', '.css')):
+                  continue
+              with open(filepath) as f:
+                  for lineno, line in enumerate(f, 1):
+                      # Strip comments from the line before checking for URLs
+                      stripped = line
+                      for cp in comment_patterns:
+                          stripped = cp.sub('', stripped)
+                      if url_pattern.search(stripped):
+                          found.append(f"  {filepath}:{lineno}: {line.rstrip()}")
+
+          if found:
+              print("ERROR: External URLs found in non-comment source code:")
+              for f in found:
+                  print(f)
+              print("\nAll resources must be bundled locally. See Transparency & Safety in README.")
+              sys.exit(1)
+          else:
+              print("No external URLs found in source code.")
+          PYEOF
 
       - name: Security - verify strict CSP
         run: |

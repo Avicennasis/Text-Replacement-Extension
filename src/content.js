@@ -400,7 +400,10 @@ function processNode(node) {
  * for text nodes. The TreeWalker's filter function rejects nodes inside
  * ignored tags and editable areas, so they are never even visited.
  *
- * NOTE: This function is only used for the INITIAL page load.
+ * NOTE: This function scans the ENTIRE page, so it is used sparingly:
+ *   - Once during initial page load (when rules are first loaded from storage).
+ *   - When rules change (added/removed/edited) and the page needs re-scanning.
+ *   - When the master switch is toggled ON (to apply previously-inactive rules).
  * For dynamic content (infinite scroll, AJAX, etc.), the MutationObserver
  * calls processElement() to only scan newly-added nodes — much faster!
  */
@@ -561,7 +564,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
     // Check if the master switch was toggled.
     if (changes.extensionEnabled) {
       const wasEnabled = extensionEnabled;
-      extensionEnabled = changes.extensionEnabled.newValue;
+      // Use !== false (not direct assignment) to match the initial load behavior
+      // at line 538. This ensures that if the key is deleted from storage
+      // (newValue would be undefined), we default to enabled — consistent with
+      // how a fresh install behaves (no key = enabled by default).
+      extensionEnabled = changes.extensionEnabled.newValue !== false;
 
       // If we just turned ON (was off, now on), we need to process the page
       // to apply rules that were previously inactive.

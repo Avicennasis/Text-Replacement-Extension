@@ -89,11 +89,15 @@
             <table>
                 <thead>
                     <tr>
-                        <th width="30%">Original String</th>
-                        <th width="30%">Replacement String</th>
-                        <th width="10%" class="text-center">Match Case</th>
-                        <th width="10%" class="text-center">Enabled</th>
-                        <th width="20%"></th>
+                        <!-- scope="col" helps screen readers understand table structure
+                             by explicitly marking these as column headers, not row headers. -->
+                        <th scope="col" width="30%">Original String</th>
+                        <th scope="col" width="30%">Replacement String</th>
+                        <th scope="col" width="10%" class="text-center">Match Case</th>
+                        <th scope="col" width="10%" class="text-center">Enabled</th>
+                        <th scope="col" width="20%" aria-label="Actions">
+                            <span class="hidden">Actions</span>
+                        </th>
                     </tr>
                 </thead>
                 <tbody id="replacementList">
