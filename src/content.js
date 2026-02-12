@@ -306,7 +306,12 @@ const replaceCallback = (match) => {
 
   // Step 1: Try exact match (handles case-sensitive rules).
   // This is the fastest path — direct hash map lookup, O(1).
-  if (wordMapCache[match]) return wordMapCache[match].replacement;
+  // The ?? (nullish coalescing) operator provides a safety net: if a rule
+  // somehow has replacement === undefined or null (e.g., corrupted storage,
+  // manual edits, old data format), we fall back to the original matched text
+  // instead of replacing it with the literal string "undefined". We use ??
+  // instead of || so that empty string "" (intentional text deletion) still works.
+  if (wordMapCache[match]) return wordMapCache[match].replacement ?? match;
 
   // Step 2: Try case-insensitive match using our pre-built lowercase map.
   // This is also O(1) — we lowercase the match and look it up directly.
@@ -314,7 +319,7 @@ const replaceCallback = (match) => {
   // NEW APPROACH: Direct hash lookup — O(1), instant regardless of rule count.
   const lowerMatch = match.toLowerCase();
   if (wordMapCacheLower[lowerMatch]) {
-    return wordMapCacheLower[lowerMatch].replacement;
+    return wordMapCacheLower[lowerMatch].replacement ?? match;
   }
 
   // Step 3: Fallback — return the original match unchanged.

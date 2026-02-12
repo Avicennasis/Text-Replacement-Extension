@@ -145,11 +145,17 @@ function validateStorageQuota(wordMap) {
 // -----------------------------------------------------------------------------
 
 /**
- * Validates the structure and values of imported rules.
+ * Validates the structure and values of imported rules, and strips unknown fields.
  * Checks that each rule has the expected fields with correct types,
  * and that patterns don't exceed safety limits.
  *
- * @param {Object} rules - The rules object from an import file.
+ * SANITIZATION: After validation, each rule is reduced to only the known
+ * fields (replacement, caseSensitive, enabled). Any extra properties from
+ * the import file (e.g., "notes", "author", "timestamp") are stripped.
+ * This prevents storage bloat — unknown fields would accumulate across
+ * import/export cycles, eating into the 8 KB per-item quota.
+ *
+ * @param {Object} rules - The rules object from an import file. MUTATED in place.
  * @returns {string|null} - Error message if invalid, null if all rules are valid.
  */
 function validateImportedRules(rules) {
@@ -182,6 +188,15 @@ function validateImportedRules(rules) {
         if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
             value.enabled = Boolean(value.enabled);
         }
+
+        // Strip unknown fields — only keep the three known properties.
+        // This prevents storage bloat from extra fields in import files
+        // (e.g., editor metadata, user notes, timestamps from other tools).
+        rules[key] = {
+            replacement: value.replacement,
+            caseSensitive: value.caseSensitive ?? false,
+            enabled: value.enabled ?? true
+        };
     }
 
     return null; // All rules are valid
@@ -681,10 +696,27 @@ function addReplacement() {
             return;
         }
 
-        // Prevent duplicate rules
+        // Prevent duplicate rules (exact match)
         if (wordMap[newOriginal]) {
             showStatus('Rule already exists for this word.', true);
             return;
+        }
+
+        // Prevent case-insensitive collisions.
+        // If the new rule is case-insensitive, check whether an existing
+        // case-insensitive rule matches the same text (ignoring case).
+        // For example, adding "cat" (case-insensitive) when "Cat" (case-insensitive)
+        // already exists would create two rules that silently collide in the
+        // replacement engine — only one would actually work, and the other
+        // would be ignored with no warning. This check prevents that confusion.
+        if (!newCaseSensitive) {
+            const newLower = newOriginal.toLowerCase();
+            for (const [key, data] of Object.entries(wordMap)) {
+                if (!data.caseSensitive && key.toLowerCase() === newLower) {
+                    showStatus(`A case-insensitive rule for "${key}" already exists. Change it to case-sensitive or use the existing rule.`, true);
+                    return;
+                }
+            }
         }
 
         // Add the new rule

@@ -131,7 +131,10 @@ jobs:
           url_pattern = re.compile(r'https?://[a-zA-Z]')
           # Patterns for single-line comment removal (applied AFTER block comment tracking)
           comment_patterns = [
-              re.compile(r'//.*$'),           # JS single-line comments
+              # JS single-line comments: matches // but NOT :// (URL protocol).
+              # Without the lookbehind, "https://evil.com" would have "//evil.com"
+              # stripped as a "comment", hiding the URL from the scanner entirely.
+              re.compile(r'(?<!:)//.*$'),
               re.compile(r'/\*.*?\*/'),        # JS/CSS block comments (single-line)
               re.compile(r'<!--.*?-->'),       # HTML comments (single-line)
           ]
