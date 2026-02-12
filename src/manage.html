@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Replacements</title>
+    <!--
+        SECURITY NOTE:
+        Styles are loaded from an external CSS file (not inline <style> tags).
+        This allows our Content Security Policy to use strict "style-src 'self'"
+        without needing 'unsafe-inline', eliminating a class of CSS injection attacks.
+
+        PRIVACY NOTE:
+        We use system fonts — no external CDN fonts (Google Fonts, etc.).
+        This means zero external network requests from this page.
+    -->
+    <link rel="stylesheet" href="manage.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Text Replacements</h1>
+            <p class="subtitle">Customize your web experience</p>
+        </header>
+
+        <!-- Master On/Off Switch -->
+        <div class="master-switch-container">
+            <span class="master-label">Extension Enabled</span>
+            <label class="toggle-switch" aria-label="Toggle extension on/off">
+                <input type="checkbox" id="masterSwitch" aria-label="Enable or disable text replacement extension">
+                <span class="slider" aria-hidden="true"></span>
+            </label>
+        </div>
+
+        <!-- Export/Import Section -->
+        <div class="export-import-section" role="group" aria-label="Rule backup and restore">
+            <button id="exportBtn" class="btn-secondary" aria-label="Export all rules to JSON file">Export Rules</button>
+            <button id="importBtn" class="btn-secondary" aria-label="Import rules from JSON file">Import Rules</button>
+            <input type="file" id="importFile" class="hidden" accept=".json" aria-label="Select JSON file to import">
+        </div>
+
+        <!-- Status Messages (temporary feedback after actions) -->
+        <div id="status" role="status" aria-live="polite"></div>
+
+        <!-- Add New Rule Form -->
+        <form id="addReplacementForm" class="add-section" aria-label="Add new replacement rule">
+            <div class="input-group">
+                <label for="newOriginal">Original String</label>
+                <input type="text" id="newOriginal" name="newOriginal" placeholder="e.g. 'cat'" required
+                    autocomplete="off" aria-label="Text to find and replace" aria-required="true">
+            </div>
+
+            <div class="input-group">
+                <label for="newReplacement">Replacement String</label>
+                <input type="text" id="newReplacement" name="newReplacement" placeholder="e.g. 'dog'" required
+                    autocomplete="off" aria-label="Text to replace it with" aria-required="true">
+            </div>
+
+            <div class="input-group input-group-toggle">
+                <label>Match Case</label>
+                <div class="toggle-wrapper">
+                    <label class="toggle-switch" title="Match Case?" aria-label="Enable case-sensitive matching">
+                        <input type="checkbox" id="newCaseSensitive" name="newCaseSensitive" aria-label="Match exact capitalization">
+                        <span class="slider" aria-hidden="true"></span>
+                    </label>
+                </div>
+            </div>
+
+            <button type="submit" class="btn-add" aria-label="Add this replacement rule">Add Rule</button>
+        </form>
+
+        <!-- Search/Filter Box -->
+        <div class="search-container" role="search">
+            <input type="text" id="searchBox" placeholder="Search rules..." autocomplete="off"
+                   aria-label="Search replacement rules by original or replacement text">
+            <span id="searchResults" class="search-results" role="status" aria-live="polite"></span>
+        </div>
+
+        <!-- Rules Table -->
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="30%">Original String</th>
+                        <th width="30%">Replacement String</th>
+                        <th width="10%" class="text-center">Match Case</th>
+                        <th width="10%" class="text-center">Enabled</th>
+                        <th width="20%"></th>
+                    </tr>
+                </thead>
+                <tbody id="replacementList">
+                    <!-- Rows are dynamically injected by manage.js -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="manage.js"></script>
+</body>
+
+</html>

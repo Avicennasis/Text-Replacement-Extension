@@ -1,0 +1,455 @@
+/*
+ * manage.css
+ * ---------------------------------------------------------------------------
+ * Styles for the Text Replacement management page.
+ *
+ * SECURITY NOTE:
+ * This CSS is loaded as an external file (not inline <style> tags) so that
+ * the Content Security Policy can use strict "style-src 'self'" without
+ * needing 'unsafe-inline'. This eliminates a class of CSS injection attacks.
+ *
+ * PRIVACY NOTE:
+ * We use system fonts instead of external CDN fonts (Google Fonts, etc.).
+ * This eliminates external network requests, improves privacy (no font
+ * provider tracking), and speeds up page loading.
+ * ---------------------------------------------------------------------------
+ */
+
+/* =========================================================================
+   CSS CUSTOM PROPERTIES (Design Tokens)
+   These variables define the entire color scheme in one place, making it
+   easy to theme or audit the visual design.
+   ========================================================================= */
+:root {
+    --primary: #00f2fe;
+    --secondary: #4facfe;
+    --accent: #ff0055;
+    --bg-dark: #0f172a;
+    --glass-bg: rgba(255, 255, 255, 0.03);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+}
+
+/* =========================================================================
+   BASE STYLES
+   ========================================================================= */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    background-color: var(--bg-dark);
+    color: var(--text-main);
+    margin: 0;
+    padding: 40px;
+    min-height: 100vh;
+    background-image:
+        radial-gradient(circle at 10% 20%, rgba(79, 172, 254, 0.15) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(255, 0, 85, 0.1) 0%, transparent 40%);
+    background-attachment: fixed;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+}
+
+/* =========================================================================
+   MAIN CONTAINER (Glassmorphism Card)
+   The main UI is wrapped in a frosted-glass card with blur and transparency.
+   ========================================================================= */
+.container {
+    width: 100%;
+    max-width: 1000px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 40px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    animation: fadeIn 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* =========================================================================
+   HEADER
+   ========================================================================= */
+header {
+    margin-bottom: 40px;
+    text-align: center;
+}
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(to right, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+    letter-spacing: -1px;
+}
+
+p.subtitle {
+    color: var(--text-muted);
+    margin-top: 10px;
+    font-weight: 300;
+}
+
+/* =========================================================================
+   TOGGLE SWITCH
+   Custom checkbox styled as a sliding toggle. The actual <input> is hidden
+   and the visual slider is a <span> that animates on state change.
+   ========================================================================= */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    vertical-align: middle;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.1);
+    transition: .4s;
+    border-radius: 24px;
+    border: 1px solid var(--glass-border);
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 2px;
+    bottom: 2px;
+    background-color: var(--text-muted);
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: rgba(0, 242, 254, 0.2);
+    border-color: var(--secondary);
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+    background-color: var(--primary);
+    box-shadow: 0 0 10px var(--primary);
+}
+
+/* =========================================================================
+   MASTER SWITCH
+   The global on/off toggle at the top of the page.
+   ========================================================================= */
+.master-switch-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+}
+
+.master-label {
+    font-weight: 600;
+    font-size: 1.1rem;
+    color: var(--text-main);
+}
+
+/* =========================================================================
+   EXPORT / IMPORT SECTION
+   ========================================================================= */
+.export-import-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 30px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 10px 20px;
+    color: var(--text-main);
+    font-weight: 500;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-secondary:hover {
+    background: rgba(79, 172, 254, 0.1);
+    border-color: var(--secondary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(79, 172, 254, 0.2);
+}
+
+.btn-secondary:active {
+    transform: translateY(0);
+}
+
+/* =========================================================================
+   ADD RULE FORM
+   ========================================================================= */
+.add-section {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 40px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    transition: all 0.3s ease;
+}
+
+.add-section:focus-within {
+    border-color: rgba(79, 172, 254, 0.5);
+    box-shadow: 0 0 20px rgba(79, 172, 254, 0.1);
+}
+
+.input-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Compact input group used for the "Match Case" toggle in the add form */
+.input-group-toggle {
+    flex: 0 0 auto;
+    align-items: center;
+    min-width: 80px;
+}
+
+/* Wrapper for toggle switches that need spacing from their label */
+.toggle-wrapper {
+    margin-top: 12px;
+}
+
+label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-left: 4px;
+}
+
+input[type="text"] {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+input[type="text"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 0 0 4px rgba(0, 242, 254, 0.1);
+}
+
+.btn-add {
+    background: linear-gradient(135deg, var(--secondary), var(--primary));
+    border: none;
+    border-radius: 12px;
+    padding: 0 24px;
+    height: 48px;
+    color: #000;
+    font-weight: 600;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-add:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px rgba(0, 242, 254, 0.3);
+}
+
+.btn-add:active {
+    transform: translateY(0);
+}
+
+/* =========================================================================
+   SEARCH BOX
+   ========================================================================= */
+.search-container {
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.02);
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+}
+
+#searchBox {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+}
+
+#searchBox:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 0 4px rgba(0, 242, 254, 0.1);
+}
+
+.search-results {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* =========================================================================
+   RULES TABLE
+   ========================================================================= */
+.table-container {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+th {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 16px 24px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+td {
+    padding: 16px 24px;
+    border-top: 1px solid var(--glass-border);
+    transition: background 0.2s;
+    vertical-align: middle;
+}
+
+tr {
+    transition: opacity 0.3s;
+}
+
+tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Inline editing inputs within table cells */
+td input[type="text"] {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 8px 0;
+    border-radius: 0;
+    margin: -8px 0;
+}
+
+td input[type="text"]:focus {
+    background: transparent;
+    border-bottom: 2px solid var(--primary);
+    border-radius: 0;
+    box-shadow: none;
+}
+
+/* Remove button in each table row */
+.btn-remove {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--glass-border);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+}
+
+.btn-remove:hover {
+    background: rgba(255, 0, 85, 0.1);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* =========================================================================
+   STATUS MESSAGE
+   Temporary feedback shown after user actions (add, remove, error, etc.).
+   ========================================================================= */
+#status {
+    text-align: center;
+    font-weight: 500;
+    margin-bottom: 20px;
+    min-height: 24px;
+    opacity: 0.9;
+    text-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
+}
+
+/* =========================================================================
+   UTILITY CLASSES
+   Used to replace inline style="" attributes for CSP compliance.
+   ========================================================================= */
+.text-center {
+    text-align: center;
+}
+
+.text-right {
+    text-align: right;
+}
+
+.hidden {
+    display: none;
+}
