@@ -33,6 +33,14 @@ jobs:
           ./build.sh
           echo "Build completed successfully."
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run tests
+        run: node tests/benchmark.js
+
       - name: Validate manifests
         run: |
           echo "Validating manifests..."
@@ -216,6 +224,9 @@ jobs:
               # appeared in a DIFFERENT directive (e.g., style-src) but script-src
               # was also present. Splitting by ";" and checking each directive
               # independently prevents cross-directive confusion.
+              if not csp:
+                  errors.append(f"{target} manifest has no Content Security Policy defined!")
+
               directives = {}
               for part in csp.split(";"):
                   tokens = part.strip().split()
@@ -226,6 +237,8 @@ jobs:
                   errors.append(f"{target} CSP allows unsafe-inline for scripts!")
               if "'unsafe-inline'" in directives.get("style-src", []):
                   errors.append(f"{target} CSP allows unsafe-inline for styles!")
+              if "'unsafe-eval'" in directives.get("script-src", []):
+                  errors.append(f"{target} CSP allows unsafe-eval for scripts!")
               print(f"  {target} CSP: {csp}")
 
           if errors:
@@ -246,6 +259,10 @@ jobs:
               ERRORS=$((ERRORS + 1))
             fi
           done
+          if ! diff -rq "dist/chromium/images" "dist/firefox/images" > /dev/null 2>&1; then
+            echo "ERROR: images directory differs between chromium and firefox builds!"
+            ERRORS=$((ERRORS + 1))
+          fi
           if [ $ERRORS -gt 0 ]; then
             echo "FAILED: Source files should be identical across builds."
             exit 1

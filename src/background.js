@@ -75,14 +75,19 @@ chrome.runtime.onInstalled.addListener(() => {
 // giving the user a better interface to manage their replacement rules.
 //
 // CROSS-BROWSER COMPATIBILITY:
-// Manifest V3 uses 'chrome.action', while older Manifest V2 used
-// 'chrome.browserAction'. We detect which API is available at runtime
-// so this single script works across Chrome, Edge, Opera, and Firefox.
-// If both browsers use MV3 (which they do in this extension), only
-// chrome.action will be defined — the fallback exists as a safety net.
+// Manifest V3 uses 'chrome.action'. The 'chrome.browserAction' fallback
+// was for Manifest V2 but is effectively dead code since both manifests
+// in this project are MV3-only. It is retained as a zero-cost safety net
+// in case the extension is ever backported to MV2 for legacy browser support.
 // -----------------------------------------------------------------------------
 const actionAPI = chrome.action || chrome.browserAction;
 actionAPI.onClicked.addListener(() => {
   Logger.debug('Extension icon clicked, opening management page');
-  chrome.tabs.create({ url: 'manage.html' });
+  chrome.tabs.create({ url: 'manage.html' }, () => {
+    // Check for errors — could fail if the browser is shutting down or
+    // if there are too many tabs open (rare but possible).
+    if (chrome.runtime.lastError) {
+      Logger.error('Failed to open management page:', chrome.runtime.lastError);
+    }
+  });
 });

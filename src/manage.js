@@ -47,6 +47,17 @@ const QUOTA_BYTES_PER_ITEM = chrome.storage.sync.QUOTA_BYTES_PER_ITEM || 8192; /
 const MAX_RULES = 255;
 const MAX_PATTERN_LENGTH = 255; // Maximum characters per original or replacement text
 
+// Guard against prototype pollution. Keys like "__proto__", "constructor",
+// or "prototype" could interfere with object property lookups in some
+// JavaScript engines. While modern engines protect against __proto__
+// assignment on plain objects, rejecting these keys is defense-in-depth.
+const RESERVED_KEYS = ['__proto__', 'constructor', 'prototype'];
+
+// Valid field names for updateReplacement(). Used to prevent unknown
+// properties from being silently persisted to storage (which would eat
+// into the 8 KB quota).
+const VALID_FIELDS = new Set(['originalText', 'replacement', 'caseSensitive', 'enabled']);
+
 // Maximum import file size (in bytes). This prevents the browser from freezing
 // if a user accidentally selects a very large file. The FileReader API will
 // attempt to read the entire file into memory at once, so we check the size
@@ -163,6 +174,25 @@ function validateStorageQuota(wordMap) {
     return null; // Within limits
 }
 
+/**
+ * Safely extracts the wordMap from storage data with type checking.
+ * If the stored value is corrupted (not a plain object), falls back to
+ * an empty object to prevent crashes from calling Object.entries() on
+ * a string, number, array, or null.
+ *
+ * @param {*} rawWordMap - The value from storage (may be any type).
+ * @returns {Object} - A valid wordMap object.
+ */
+function safeWordMap(rawWordMap) {
+    if (rawWordMap && typeof rawWordMap === 'object' && !Array.isArray(rawWordMap)) {
+        return rawWordMap;
+    }
+    if (rawWordMap !== undefined) {
+        Logger.warn('Storage wordMap is corrupted (expected object, got ' + typeof rawWordMap + '). Using empty rules.');
+    }
+    return {};
+}
+
 // -----------------------------------------------------------------------------
 // IMPORT VALIDATION
 // Validates that imported rules have the correct structure and safe values.
@@ -190,6 +220,10 @@ function validateImportedRules(rules) {
         // boundary, causing replacements to fire between every character.
         if (key.length === 0) {
             return 'Invalid rule: empty original text is not allowed. Every rule must specify the text to find.';
+        }
+
+        if (RESERVED_KEYS.includes(key)) {
+            return 'Invalid rule: "' + key + '" is a reserved JavaScript keyword and cannot be used as rule text.';
         }
 
         // Validate original text (key) length
@@ -366,13 +400,13 @@ function loadWordMap() {
             return;
         }
 
-        const wordMap = data.wordMap || {};
+        const wordMap = safeWordMap(data.wordMap);
         const replacementList = document.getElementById('replacementList');
 
-        // Clear existing table rows safely.
-        // We remove children one by one instead of using innerHTML = '' because
-        // innerHTML can execute embedded scripts if data were ever compromised.
-        // This is a defense-in-depth measure consistent with our CSP policy.
+        // Clear existing table rows safely. While innerHTML = '' (empty string)
+        // is technically safe, we avoid innerHTML entirely as a project convention.
+        // This makes it easier to audit the codebase for XSS vectors — if innerHTML
+        // never appears in the code, reviewers don't need to verify each usage.
         while (replacementList.firstChild) {
             replacementList.removeChild(replacementList.firstChild);
         }
@@ -386,6 +420,17 @@ function loadWordMap() {
             // Handle older data formats that may not have the 'enabled' property
             const enabled = ruleData.enabled !== false;
             addRowToTable(originalText, ruleData.replacement, ruleData.caseSensitive, enabled, fragment);
+        }
+
+        // Show a helpful message when the rules table is empty
+        if (Object.keys(wordMap).length === 0) {
+            const emptyRow = document.createElement('tr');
+            const emptyCell = document.createElement('td');
+            emptyCell.setAttribute('colspan', '5');
+            emptyCell.textContent = 'No replacement rules yet. Add one above to get started!';
+            emptyCell.className = 'text-center empty-state';
+            emptyRow.appendChild(emptyCell);
+            fragment.appendChild(emptyRow);
         }
 
         replacementList.appendChild(fragment);
@@ -468,6 +513,8 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
     const originalTextInput = document.createElement('input');
     originalTextInput.type = 'text';
     originalTextInput.value = originalText;
+    // Mirror the maxlength="255" from the Add Rule form inputs in manage.html
+    originalTextInput.maxLength = MAX_PATTERN_LENGTH;
     originalTextInput.setAttribute('aria-label', `Original text: ${originalText}`);
     originalTextInput.addEventListener('change', () =>
         updateReplacement(originalText, 'originalText', originalTextInput.value)
@@ -477,6 +524,8 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
     const replacementTextInput = document.createElement('input');
     replacementTextInput.type = 'text';
     replacementTextInput.value = replacement;
+    // Mirror the maxlength="255" from the Add Rule form inputs in manage.html
+    replacementTextInput.maxLength = MAX_PATTERN_LENGTH;
     replacementTextInput.setAttribute('aria-label', `Replacement text for "${originalText}": ${replacement}`);
     replacementTextInput.addEventListener('change', () =>
         updateReplacement(originalText, 'replacement', replacementTextInput.value)
@@ -495,13 +544,13 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
         (checked) => {
             updateReplacement(originalText, 'enabled', checked);
             // Visual feedback: fade out disabled rows so users can see at a glance
-            row.style.opacity = checked ? '1' : '0.5';
+            row.classList.toggle('rule-disabled', !checked);
         },
         `Enable or disable rule for "${originalText}"`
     );
 
     // Set initial visual state for disabled rules
-    row.style.opacity = enabled ? '1' : '0.5';
+    row.classList.toggle('rule-disabled', !enabled);
 
     // 5. Remove Button
     const removeButton = document.createElement('button');
@@ -535,8 +584,8 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
 // -----------------------------------------------------------------------------
 // RULE CRUD OPERATIONS
 // Create, Read, Update, Delete operations for replacement rules.
-// All operations read fresh data from storage before writing to prevent
-// race conditions between multiple tabs or rapid successive edits.
+// All operations read fresh data from storage before writing to reduce
+// the risk of race conditions between multiple tabs or rapid successive edits.
 // -----------------------------------------------------------------------------
 
 /**
@@ -552,7 +601,7 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
  *   confusing with case-insensitive matching rules.
  * - Validates storage quota before saving.
  * - Reverts the UI to the previous valid state on any error.
- * - Reads fresh data from storage before writing to prevent race conditions.
+ * - Reads fresh data from storage before writing to minimize race conditions.
  *
  * @param {string} originalText - The current key of the rule being edited.
  * @param {string} field - Which field to update: 'originalText', 'replacement',
@@ -560,6 +609,13 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
  * @param {*} newValue - The new value for the field.
  */
 function updateReplacement(originalText, field, newValue) {
+    // Validate the field name to prevent unknown properties from being
+    // silently persisted to storage (which would eat into the 8 KB quota).
+    if (!VALID_FIELDS.has(field)) {
+        Logger.error('updateReplacement called with invalid field:', field);
+        return;
+    }
+
     // VALIDATION: Prevent empty original text (would match nothing — user error)
     // Note: We intentionally allow empty replacement text — that's a valid use
     // case for deleting/removing the original text entirely from pages.
@@ -584,7 +640,7 @@ function updateReplacement(originalText, field, newValue) {
         }
     }
 
-    // Read fresh data from storage to prevent race conditions.
+    // Read fresh data from storage to reduce the risk of race conditions.
     // If two tabs edit simultaneously, we always work with the latest data.
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
@@ -594,7 +650,7 @@ function updateReplacement(originalText, field, newValue) {
             return;
         }
 
-        const wordMap = data.wordMap || {};
+        const wordMap = safeWordMap(data.wordMap);
         if (!wordMap[originalText]) return; // Rule was deleted in another tab
 
         const originalData = wordMap[originalText];
@@ -704,6 +760,11 @@ function addReplacement() {
         return;
     }
 
+    if (RESERVED_KEYS.includes(newOriginal)) {
+        showStatus(`"${newOriginal}" is a reserved word and cannot be used as rule text.`, true);
+        return;
+    }
+
     // Validate pattern lengths to prevent performance issues
     if (newOriginal.length > MAX_PATTERN_LENGTH) {
         showStatus(`Original text too long! Maximum ${MAX_PATTERN_LENGTH} characters allowed.`, true);
@@ -715,7 +776,7 @@ function addReplacement() {
         return;
     }
 
-    // Read fresh data from storage to prevent race conditions
+    // Read fresh data from storage to reduce the risk of race conditions
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to get word map for adding rule:', chrome.runtime.lastError);
@@ -723,7 +784,7 @@ function addReplacement() {
             return;
         }
 
-        const wordMap = data.wordMap || {};
+        const wordMap = safeWordMap(data.wordMap);
 
         // Check rule count limit
         if (Object.keys(wordMap).length >= MAX_RULES) {
@@ -812,7 +873,7 @@ function removeReplacement(originalText) {
         return;
     }
 
-    // Read fresh data from storage to prevent race conditions
+    // Read fresh data from storage to reduce the risk of race conditions
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to get word map for removal:', chrome.runtime.lastError);
@@ -820,7 +881,7 @@ function removeReplacement(originalText) {
             return;
         }
 
-        const wordMap = data.wordMap || {};
+        const wordMap = safeWordMap(data.wordMap);
         delete wordMap[originalText];
 
         chrome.storage.sync.set({ wordMap }, () => {
@@ -902,19 +963,22 @@ function exportRules() {
             return;
         }
 
-        const wordMap = data.wordMap || {};
+        const wordMap = safeWordMap(data.wordMap);
+        const ruleCount = Object.keys(wordMap).length;
 
         // Check if there are any rules to export
-        if (Object.keys(wordMap).length === 0) {
+        if (ruleCount === 0) {
             showStatus('No rules to export!', true);
             return;
         }
 
         // Create export object with metadata for version compatibility
         const exportData = {
-            version: '2.1',
+            // Read version from the manifest instead of hardcoding, so the export
+            // metadata stays in sync when the manifest version is bumped.
+            version: chrome.runtime.getManifest().version,
             exportedAt: new Date().toISOString(),
-            rulesCount: Object.keys(wordMap).length,
+            rulesCount: ruleCount,
             rules: wordMap
         };
 
@@ -939,8 +1003,8 @@ function exportRules() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        Logger.debug('Rules exported successfully:', Object.keys(wordMap).length, 'rules');
-        showStatus(`Exported ${Object.keys(wordMap).length} rules successfully!`);
+        Logger.debug('Rules exported successfully:', ruleCount, 'rules');
+        showStatus(`Exported ${ruleCount} rules successfully!`);
     });
 }
 
@@ -964,6 +1028,11 @@ function importRules(file) {
         Logger.warn('Import attempted with no file selected');
         return;
     }
+
+    // Reset the file input immediately so the same file can be re-selected
+    // if validation fails. Without this, the browser's change event won't
+    // fire again for the same filename, preventing retry.
+    document.getElementById('importFile').value = '';
 
     // Basic file type check (defense-in-depth; the file input also has accept=".json").
     // Accept either a valid extension OR a valid MIME type — some OS/browser
@@ -1043,7 +1112,7 @@ function importRules(file) {
                     Logger.debug('Import mode: REPLACE');
                 } else {
                     // Merge: imported rules overwrite existing ones on conflict
-                    finalRules = { ...data.wordMap, ...importedRules };
+                    finalRules = { ...safeWordMap(data.wordMap), ...importedRules };
                     Logger.debug('Import mode: MERGE');
                 }
 
@@ -1086,9 +1155,6 @@ function importRules(file) {
     };
 
     reader.readAsText(file);
-
-    // Reset the file input so the same file can be selected again if needed
-    document.getElementById('importFile').value = '';
 }
 
 // -----------------------------------------------------------------------------
@@ -1112,7 +1178,7 @@ function filterRules(query) {
     // If search is empty, show all rows and clear the results counter
     if (!searchQuery) {
         rows.forEach(row => {
-            row.style.display = '';
+            row.classList.remove('hidden-by-filter');
         });
         document.getElementById('searchResults').textContent = '';
         return;
@@ -1129,10 +1195,10 @@ function filterRules(query) {
         const matches = originalText.includes(searchQuery) || replacementText.includes(searchQuery);
 
         if (matches) {
-            row.style.display = '';
+            row.classList.remove('hidden-by-filter');
             visibleCount++;
         } else {
-            row.style.display = 'none';
+            row.classList.add('hidden-by-filter');
         }
     });
 

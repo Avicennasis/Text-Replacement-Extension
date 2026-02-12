@@ -260,6 +260,22 @@ input:focus-visible + .slider {
     box-shadow: 0 0 20px rgba(79, 172, 254, 0.1);
 }
 
+/* Responsive: stack the form vertically on narrow viewports so inputs
+   don't get squeezed to unusable widths. */
+@media (max-width: 768px) {
+    .add-section {
+        flex-wrap: wrap;
+    }
+
+    .add-section .input-group {
+        flex: 1 1 100%;
+    }
+
+    .add-section .btn-add {
+        width: 100%;
+    }
+}
+
 .input-group {
     flex: 1;
     display: flex;
@@ -300,7 +316,9 @@ input[type="text"] {
 }
 
 input[type="text"]:focus {
-    outline: none;
+    /* outline: transparent (not none) preserves focus visibility in Windows
+       High Contrast Mode, where box-shadow is not rendered. WCAG 2.4.7. */
+    outline: 2px solid transparent;
     border-color: var(--primary);
     background: rgba(0, 0, 0, 0.4);
     box-shadow: 0 0 0 4px rgba(0, 242, 254, 0.1);
@@ -364,7 +382,9 @@ input[type="text"]:focus {
 }
 
 #searchBox:focus {
-    outline: none;
+    /* outline: transparent (not none) preserves focus visibility in Windows
+       High Contrast Mode, where box-shadow is not rendered. WCAG 2.4.7. */
+    outline: 2px solid transparent;
     border-color: var(--primary);
     background: rgba(0, 0, 0, 0.5);
     box-shadow: 0 0 0 4px rgba(0, 242, 254, 0.1);
@@ -427,6 +447,9 @@ td input[type="text"] {
 }
 
 td input[type="text"]:focus {
+    /* outline: transparent (not none) preserves focus visibility in Windows
+       High Contrast Mode, where box-shadow is not rendered. WCAG 2.4.7. */
+    outline: 2px solid transparent;
     background: transparent;
     border-bottom: 2px solid var(--primary);
     border-radius: 0;
@@ -484,6 +507,27 @@ td input[type="text"]:focus {
 
 .hidden {
     display: none;
+}
+
+/* Applied to table rows for disabled rules. Uses opacity to visually
+   de-emphasize the row while keeping it interactive. Toggled by manage.js
+   instead of setting element.style.opacity directly. */
+.rule-disabled {
+    opacity: 0.5;
+}
+
+/* Applied to table rows hidden by the search filter in manage.js.
+   Uses a CSS class instead of element.style.display for consistency
+   with the project's convention of avoiding inline styles. */
+.hidden-by-filter {
+    display: none;
+}
+
+/* Styling for the empty-state message shown when the rules table has
+   no entries. Provides visual padding and muted text color. */
+.empty-state {
+    padding: 40px 24px;
+    color: var(--text-muted);
 }
 
 /* =========================================================================

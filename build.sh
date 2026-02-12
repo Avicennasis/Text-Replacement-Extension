@@ -26,7 +26,7 @@ SRC_DIR="$SCRIPT_DIR/src"
 DIST_DIR="$SCRIPT_DIR/dist"
 
 # Determine which targets to build
-if [ $# -gt 0 ]; then
+if [ "$#" -gt 0 ]; then
     TARGETS=("$@")
 else
     TARGETS=("chromium" "firefox")
@@ -42,6 +42,11 @@ for required in "${REQUIRED_FILES[@]}"; do
         exit 1
     fi
 done
+
+if [ ! -d "$SRC_DIR/images" ]; then
+    echo "ERROR: Missing images directory: src/images/"
+    exit 1
+fi
 
 echo "Building Text Replacement Extension..."
 echo ""

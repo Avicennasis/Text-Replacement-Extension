@@ -42,6 +42,6 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self'"
+    "extension_pages": "script-src 'self'; object-src 'none'; style-src 'self'"
   }
 }

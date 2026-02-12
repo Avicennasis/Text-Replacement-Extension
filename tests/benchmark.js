@@ -50,11 +50,28 @@ sandbox.window = sandbox;
 let code = fs.readFileSync(path.join(__dirname, '..', 'src', 'content.js'), 'utf8');
 
 // Increase timeout for benchmark purposes
-code = code.replace('const REGEX_TIMEOUT_MS = 100;', 'const REGEX_TIMEOUT_MS = 10000;');
+const patchedCode = code.replace('const REGEX_TIMEOUT_MS = 100;', 'const REGEX_TIMEOUT_MS = 10000;');
+if (patchedCode === code) {
+    console.error('WARNING: Failed to patch REGEX_TIMEOUT_MS. The constant may have been renamed or moved.');
+    console.error('         Benchmark may timeout on large inputs.');
+}
+code = patchedCode;
 
 // Run content.js in the sandbox
 vm.createContext(sandbox);
 vm.runInContext(code, sandbox);
+
+// Verify that content.js exposed the expected functions to the sandbox.
+// If content.js is ever refactored to use an IIFE, module pattern, or
+// ES modules, these function declarations would no longer be global.
+if (typeof sandbox.processNode !== 'function') {
+    console.error('FATAL: content.js did not expose processNode() — it may have been wrapped in a module or IIFE.');
+    process.exit(1);
+}
+if (typeof sandbox.updateRegexes !== 'function') {
+    console.error('FATAL: content.js did not expose updateRegexes() — it may have been wrapped in a module or IIFE.');
+    process.exit(1);
+}
 
 // ---------------------------------------------------------
 // BENCHMARK SETUP
@@ -72,6 +89,16 @@ wordMap['and'] = { replacement: '&', caseSensitive: false, enabled: true };
 wordMap['is'] = { replacement: '=', caseSensitive: false, enabled: true };
 // Add a single letter to really hammer the callback if logic allows (e.g., 'a' -> '@')
 wordMap['a'] = { replacement: '@', caseSensitive: false, enabled: true };
+
+// Add case-sensitive rules to exercise the sensitiveRegex path.
+// Without these, only the insensitive regex is tested, leaving the
+// two-pass cascade behavior (sensitive first, then insensitive) unverified.
+wordMap['The'] = { replacement: 'DA-CASE', caseSensitive: true, enabled: true };
+wordMap['Quick'] = { replacement: 'SLOW-CASE', caseSensitive: true, enabled: true };
+wordMap['Fox'] = { replacement: 'WOLF-CASE', caseSensitive: true, enabled: true };
+
+// Add a disabled rule to verify it is excluded from processing.
+wordMap['DISABLED_WORD'] = { replacement: 'SHOULD_NOT_APPEAR', caseSensitive: false, enabled: false };
 
 // Apply rules
 sandbox.updateRegexes(wordMap);
@@ -119,10 +146,34 @@ const avgTime = totalTime / ITERATIONS;
 console.log(`Average time per run: ${avgTime.toFixed(4)} ms`);
 
 // 4. Verify Correctness
-// Check if replacements happened
-if (textNode.nodeValue.includes("da quick brown fox")) {
-    console.log("✅ Verification Passed: Text was replaced.");
+// Correctness verification — check multiple replacements across both
+// case-sensitive and case-insensitive paths.
+const result = textNode.nodeValue;
+const checks = [
+    { search: 'da quick', label: "'the' → 'da' (case-insensitive)" },
+    { search: 'DA-CASE', label: "'The' → 'DA-CASE' (case-sensitive)" },
+    { search: 'SLOW-CASE', label: "'Quick' → 'SLOW-CASE' (case-sensitive)" },
+];
+
+let allPassed = true;
+for (const check of checks) {
+    if (result.includes(check.search)) {
+        console.log(`  ✓ PASS: ${check.label}`);
+    } else {
+        console.log(`  ✗ FAIL: ${check.label} — "${check.search}" not found in output`);
+        allPassed = false;
+    }
+}
+
+// Verify disabled rules are NOT applied
+if (result.includes('SHOULD_NOT_APPEAR')) {
+    console.log('  ✗ FAIL: Disabled rule was applied (should have been skipped)');
+    allPassed = false;
 } else {
-    console.error("❌ Verification Failed: Text was NOT replaced correctly.");
-    console.log("Snippet:", textNode.nodeValue.substring(0, 100));
+    console.log('  ✓ PASS: Disabled rule correctly skipped');
+}
+
+if (!allPassed) {
+    console.log('\n  VERIFICATION FAILED — some replacements did not work correctly');
+    process.exit(1);
 }

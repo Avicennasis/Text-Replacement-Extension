@@ -30,6 +30,14 @@
 // -----------------------------------------------------------------------------
 const REGEX_TIMEOUT_MS = 100; // Maximum time (in milliseconds) to process a single text node
 
+// Skip extremely large text nodes (e.g., minified JavaScript that leaked
+// into a visible text node via a framework bug). With 255 rules, the regex
+// engine must try every alternative at every character position. On a 1 MB
+// node, that's ~255 million boundary checks — the per-match timeout cannot
+// interrupt a single long match attempt. This limit is generous: normal
+// paragraphs are well under 50,000 characters.
+const MAX_TEXT_NODE_LENGTH = 50000;
+
 // -----------------------------------------------------------------------------
 // LOGGING UTILITY
 // Simple logging system with levels. Set ENABLE_DEBUG_LOGGING to true to see
@@ -80,6 +88,19 @@ const Logger = {
   }
 };
 
+/**
+ * Custom error class thrown when regex processing exceeds REGEX_TIMEOUT_MS.
+ * Using a dedicated class instead of checking error.message === 'Regex timeout'
+ * is more robust — it survives minification, doesn't rely on string matching,
+ * and clearly communicates intent.
+ */
+class RegexTimeoutError extends Error {
+  constructor() {
+    super('Regex processing exceeded time limit');
+    this.name = 'RegexTimeoutError';
+  }
+}
+
 // -----------------------------------------------------------------------------
 // REGEX UTILITIES
 // These functions safely compile user-provided text into Regular Expressions.
@@ -99,6 +120,22 @@ const Logger = {
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+// -----------------------------------------------------------------------------
+// UNICODE BEHAVIOR NOTES
+// JavaScript's \b word boundary only recognizes ASCII word characters
+// [a-zA-Z0-9_]. Non-ASCII letters (accented characters like é, CJK
+// characters, Cyrillic, etc.) are treated as non-word characters. This
+// means:
+//   - Replacing "café" works correctly (\b is not added around é).
+//   - Replacing "uber" will NOT match inside "über" because \b correctly
+//     sees the boundary between ü (non-word) and b (word).
+//   - Case folding uses JavaScript's built-in toLowerCase(), which follows
+//     Unicode Default Case Conversion (not locale-specific Turkish I, etc.).
+//   - The regex does NOT use the 'u' (unicode) flag, so surrogate pairs
+//     (emoji) are treated as two code units. This does not affect replacement
+//     correctness since all user input is escaped to literal characters.
+// -----------------------------------------------------------------------------
 
 /**
  * Compiles a list of words into a single, optimized Regular Expression.
@@ -168,6 +205,7 @@ let insensitiveRegex = null; // Compiled regex for case-insensitive rules
 let wordMapCache = Object.create(null);       // O(1) lookup map: exact original text → rule data
 let wordMapCacheLower = Object.create(null);  // O(1) lookup map: lowercased text → rule data (for case-insensitive)
 let extensionEnabled = true; // Master on/off switch state
+let reprocessTimeout = null; // Debounce timer for storage-change re-scans
 
 // Timeout tracking variables for the replaceCallback safety mechanism.
 // These are module-scoped (not inside processNode) to avoid creating new
@@ -205,7 +243,14 @@ function updateRegexes(wordMap) {
       // Build a lowercase lookup map for case-insensitive rules.
       // This allows O(1) lookup during replacement instead of O(n) iteration.
       if (!data.caseSensitive) {
-        activeLowerMap[word.toLowerCase()] = data;
+        const lowerKey = word.toLowerCase();
+        // Warn if two different rules collide on the same lowercase key.
+        // This shouldn't happen (manage.js prevents it), but imported rules
+        // or manually edited storage could contain duplicates.
+        if (activeLowerMap[lowerKey]) {
+          Logger.warn(`Case-insensitive collision: "${word}" overlaps with an existing rule for "${lowerKey}". Only one will take effect.`);
+        }
+        activeLowerMap[lowerKey] = data;
       }
 
       if (data.caseSensitive) {
@@ -300,7 +345,7 @@ function shouldProcessNode(node) {
  *
  * @param {string} match - The matched text from the regex.
  * @returns {string} - The replacement text to substitute.
- * @throws {Error} - Throws 'Regex timeout' if processing exceeds REGEX_TIMEOUT_MS.
+ * @throws {RegexTimeoutError} - Throws if processing exceeds REGEX_TIMEOUT_MS.
  */
 const replaceCallback = (match) => {
   // TIMEOUT SAFETY: Check if we've been processing too long.
@@ -309,7 +354,7 @@ const replaceCallback = (match) => {
   // We only check every 50th match to minimize performance.now() overhead.
   matchCounter++;
   if (matchCounter % 50 === 0 && performance.now() - nodeProcessingStartTime > REGEX_TIMEOUT_MS) {
-    throw new Error('Regex timeout'); // Caught by processNode's try/catch
+    throw new RegexTimeoutError(); // Caught by processNode's try/catch
   }
 
   // Step 1: Try exact match (handles case-sensitive rules).
@@ -359,6 +404,12 @@ function processNode(node) {
   if (!shouldProcessNode(node)) return;
 
   let text = node.nodeValue;
+
+  if (text.length > MAX_TEXT_NODE_LENGTH) {
+    Logger.debug('Skipping oversized text node:', text.length, 'chars');
+    return;
+  }
+
   let changed = false;
 
   // Start the timeout timer for this node.
@@ -393,6 +444,9 @@ function processNode(node) {
     // Order matters: if a word appears in both sensitive and insensitive rules,
     // the sensitive rule takes priority.
     if (sensitiveRegex) {
+      // Reset lastIndex for safety. While .replace() resets it per spec,
+      // an errant .test() or .exec() call elsewhere could leave it dirty.
+      sensitiveRegex.lastIndex = 0;
       const newText = text.replace(sensitiveRegex, replaceCallback);
       if (newText !== text) {
         text = newText;
@@ -402,6 +456,9 @@ function processNode(node) {
 
     // Pass 2: Apply case-insensitive replacements to the (possibly modified) text.
     if (insensitiveRegex) {
+      // Reset lastIndex for safety. While .replace() resets it per spec,
+      // an errant .test() or .exec() call elsewhere could leave it dirty.
+      insensitiveRegex.lastIndex = 0;
       const newText = text.replace(insensitiveRegex, replaceCallback);
       if (newText !== text) {
         text = newText;
@@ -416,15 +473,15 @@ function processNode(node) {
       node.nodeValue = text;
     }
   } catch (error) {
-    if (error.message === 'Regex timeout') {
-      // Timeout occurred — silently skip this node and continue processing.
-      // This is better than hanging the entire browser! The user won't notice
-      // because only this one text block is skipped.
-      Logger.warn('Regex timeout on node (skipping):', node.nodeValue?.substring(0, 50));
+    if (error instanceof RegexTimeoutError) {
+      Logger.warn('Regex timeout on node (skipping)');
+      Logger.debug('Timed-out node content preview:', node.nodeValue?.substring(0, 50));
       return;
     }
-    // Re-throw unexpected errors so they appear in the console for debugging.
-    throw error;
+    // Log unexpected errors and continue processing other nodes instead of
+    // crashing the entire TreeWalker/MutationObserver loop. One corrupted
+    // text node should not prevent the rest of the page from being processed.
+    Logger.error('Unexpected error processing node (skipping):', error);
   }
 }
 
@@ -554,9 +611,36 @@ const observer = new MutationObserver((mutations) => {
 // Start watching immediately — even before rules load from storage.
 // childList: watch for nodes being added/removed
 // subtree: watch the entire DOM tree, not just direct children of <body>
+// NOTE: characterData is intentionally NOT observed. If we watched text
+// content changes, our own replacement (writing to node.nodeValue) would
+// trigger another mutation, creating an infinite loop. Frameworks that
+// update text bindings (React, Vue, etc.) typically replace the entire
+// text node (a childList change), not just its content, so this is not
+// a significant limitation in practice.
 if (document.body) {
   observer.observe(document.body, { childList: true, subtree: true });
+} else {
+  // Fallback: if document.body is not yet available (unusual timing with
+  // about:blank frames or certain browser loading sequences), wait for
+  // DOMContentLoaded to start observing.
+  document.addEventListener('DOMContentLoaded', () => {
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  });
 }
+
+// KNOWN LIMITATIONS:
+// - Shadow DOM: Text inside web components using Shadow DOM (open or closed)
+//   is not processed. The TreeWalker and MutationObserver cannot reach into
+//   shadow roots. Closed shadow roots are inaccessible by design; observing
+//   open shadow roots would require recursive observer setup on every shadow
+//   host, which is complex and has its own edge cases.
+// - Iframes: The content script runs in the top-level frame only (the manifest
+//   does not set "all_frames": true). Same-origin iframes get their own
+//   content script injection by the browser, but cross-origin iframes are
+//   isolated. This is intentional — modifying cross-origin iframe content
+//   would require additional permissions and raises security concerns.
 
 // -----------------------------------------------------------------------------
 // INITIALIZATION
@@ -628,7 +712,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     // This prevents unnecessary work (e.g., toggling a single rule off
     // doesn't require a full page re-scan).
     if (needsReprocess && extensionEnabled) {
-      processDocument();
+      // Debounce re-scans to avoid jank on large pages when the user is
+      // rapidly editing rules in the management page. Each keystroke that
+      // triggers a storage change would otherwise cause a full DOM re-scan
+      // on every open tab. The 200ms delay batches rapid changes together.
+      clearTimeout(reprocessTimeout);
+      reprocessTimeout = setTimeout(processDocument, 200);
     }
   }
 });
