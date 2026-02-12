@@ -1,12 +1,13 @@
 # =============================================================================
-# CI — Text Replacement Extension
+# CI - Text Replacement Extension
 # =============================================================================
 # Runs on every push and pull request to verify:
 #   1. The build script succeeds for both Chromium and Firefox targets.
 #   2. Both manifests are valid JSON with the correct manifest_version.
 #   3. All source files referenced in the manifests actually exist.
 #   4. No external URLs are loaded (privacy/security check).
-#   5. The Content Security Policy does not include 'unsafe-inline' for scripts.
+#   5. The Content Security Policy does not include 'unsafe-inline'.
+#   6. Source files are identical across browser builds.
 # =============================================================================
 
 name: CI
@@ -32,128 +33,126 @@ jobs:
           ./build.sh
           echo "Build completed successfully."
 
-      - name: Validate Chromium manifest
+      - name: Validate manifests
         run: |
-          echo "Validating Chromium manifest..."
-          # Check it's valid JSON
-          python3 -c "import json; json.load(open('dist/chromium/manifest.json'))"
-          # Check manifest_version is 3
-          VERSION=$(python3 -c "import json; print(json.load(open('dist/chromium/manifest.json'))['manifest_version'])")
-          if [ "$VERSION" != "3" ]; then
-            echo "ERROR: Chromium manifest_version is $VERSION, expected 3"
-            exit 1
-          fi
-          echo "Chromium manifest is valid (MV$VERSION)."
+          echo "Validating manifests..."
+          python3 << 'PYEOF'
+          import json, sys
 
-      - name: Validate Firefox manifest
-        run: |
-          echo "Validating Firefox manifest..."
-          # Check it's valid JSON
-          python3 -c "import json; json.load(open('dist/firefox/manifest.json'))"
-          # Check manifest_version is 3
-          VERSION=$(python3 -c "import json; print(json.load(open('dist/firefox/manifest.json'))['manifest_version'])")
-          if [ "$VERSION" != "3" ]; then
-            echo "ERROR: Firefox manifest_version is $VERSION, expected 3"
-            exit 1
-          fi
-          # Check gecko settings exist
-          python3 -c "
-import json
-m = json.load(open('dist/firefox/manifest.json'))
-assert 'browser_specific_settings' in m, 'Missing browser_specific_settings'
-assert 'gecko' in m['browser_specific_settings'], 'Missing gecko settings'
-print('Firefox manifest is valid (MV' + str(m['manifest_version']) + ', gecko ID: ' + m['browser_specific_settings']['gecko']['id'] + ').')
-"
+          errors = []
+
+          # --- Chromium ---
+          with open("dist/chromium/manifest.json") as f:
+              cm = json.load(f)
+          if cm["manifest_version"] != 3:
+              errors.append(f"Chromium manifest_version is {cm['manifest_version']}, expected 3")
+          else:
+              print(f"  Chromium: valid (MV{cm['manifest_version']})")
+
+          # --- Firefox ---
+          with open("dist/firefox/manifest.json") as f:
+              fm = json.load(f)
+          if fm["manifest_version"] != 3:
+              errors.append(f"Firefox manifest_version is {fm['manifest_version']}, expected 3")
+          if "browser_specific_settings" not in fm:
+              errors.append("Firefox manifest missing browser_specific_settings")
+          elif "gecko" not in fm["browser_specific_settings"]:
+              errors.append("Firefox manifest missing gecko settings")
+          else:
+              gecko_id = fm["browser_specific_settings"]["gecko"]["id"]
+              print(f"  Firefox:  valid (MV{fm['manifest_version']}, gecko ID: {gecko_id})")
+
+          if errors:
+              for e in errors:
+                  print(f"ERROR: {e}")
+              sys.exit(1)
+
+          print("Manifest validation passed.")
+          PYEOF
 
       - name: Verify all referenced files exist
         run: |
-          echo "Checking that all files referenced in manifests exist..."
-          ERRORS=0
-          for target in chromium firefox; do
-            DIR="dist/$target"
+          echo "Checking referenced files..."
+          python3 << 'PYEOF'
+          import json, os, sys
 
-            # Check all JS files referenced in manifest
-            for file in $(python3 -c "
-import json
-m = json.load(open('$DIR/manifest.json'))
-# Background scripts
-bg = m.get('background', {})
-for f in bg.get('scripts', []):
-    print(f)
-if 'service_worker' in bg:
-    print(bg['service_worker'])
-# Content scripts
-for cs in m.get('content_scripts', []):
-    for f in cs.get('js', []):
-        print(f)
-"); do
-              if [ ! -f "$DIR/$file" ]; then
-                echo "ERROR: $target manifest references '$file' but it doesn't exist in $DIR/"
-                ERRORS=$((ERRORS + 1))
-              fi
-            done
+          errors = []
+          for target in ["chromium", "firefox"]:
+              d = f"dist/{target}"
+              with open(f"{d}/manifest.json") as f:
+                  m = json.load(f)
 
-            # Check icon files
-            for file in $(python3 -c "
-import json
-m = json.load(open('$DIR/manifest.json'))
-for size, path in m.get('icons', {}).items():
-    print(path)
-"); do
-              if [ ! -f "$DIR/$file" ]; then
-                echo "ERROR: $target manifest references icon '$file' but it doesn't exist"
-                ERRORS=$((ERRORS + 1))
-              fi
-            done
+              # Background scripts
+              bg = m.get("background", {})
+              for f_name in bg.get("scripts", []):
+                  if not os.path.isfile(f"{d}/{f_name}"):
+                      errors.append(f"{target}: missing background script {f_name}")
+              sw = bg.get("service_worker")
+              if sw and not os.path.isfile(f"{d}/{sw}"):
+                  errors.append(f"{target}: missing service worker {sw}")
 
-            echo "  $target: all referenced files exist."
-          done
+              # Content scripts
+              for cs in m.get("content_scripts", []):
+                  for f_name in cs.get("js", []):
+                      if not os.path.isfile(f"{d}/{f_name}"):
+                          errors.append(f"{target}: missing content script {f_name}")
 
-          if [ $ERRORS -gt 0 ]; then
-            echo "FAILED: $ERRORS missing file(s) detected."
-            exit 1
-          fi
+              # Icons
+              for size, path in m.get("icons", {}).items():
+                  if not os.path.isfile(f"{d}/{path}"):
+                      errors.append(f"{target}: missing icon {path}")
 
-      - name: Security — no external URLs in source
+              print(f"  {target}: all referenced files exist.")
+
+          if errors:
+              for e in errors:
+                  print(f"ERROR: {e}")
+              sys.exit(1)
+
+          print("File reference check passed.")
+          PYEOF
+
+      - name: Security - no external URLs in source
         run: |
           echo "Checking for external URL references in source files..."
-          # Look for http:// or https:// URLs in JS/HTML/CSS files (excluding comments about what we DON'T do)
           FOUND=$(grep -rn 'https\?://[a-zA-Z]' src/ --include='*.js' --include='*.html' --include='*.css' \
             | grep -v '// ' | grep -v ' \* ' | grep -v '<!-- ' | grep -v '/\*' || true)
           if [ -n "$FOUND" ]; then
             echo "WARNING: External URLs found in source files (review for safety):"
             echo "$FOUND"
-            # Don't fail — URLs in comments are OK, but flag for review
           else
             echo "No external URLs found in source code."
           fi
 
-      - name: Security — verify CSP does not allow unsafe-inline for scripts
+      - name: Security - verify strict CSP
         run: |
           echo "Checking Content Security Policy..."
-          for target in chromium firefox; do
-            CSP=$(python3 -c "
-import json
-m = json.load(open('dist/$target/manifest.json'))
-csp = m.get('content_security_policy', {})
-if isinstance(csp, dict):
-    print(csp.get('extension_pages', ''))
-else:
-    print(csp)
-")
-            # Check that script-src does NOT contain unsafe-inline
-            if echo "$CSP" | grep -q "script-src.*unsafe-inline"; then
-              echo "ERROR: $target CSP allows 'unsafe-inline' for scripts!"
-              exit 1
-            fi
-            # Check that style-src does NOT contain unsafe-inline
-            if echo "$CSP" | grep -q "style-src.*unsafe-inline"; then
-              echo "ERROR: $target CSP allows 'unsafe-inline' for styles!"
-              exit 1
-            fi
-            echo "  $target CSP is strict: $CSP"
-          done
-          echo "CSP checks passed."
+          python3 << 'PYEOF'
+          import json, sys
+
+          errors = []
+          for target in ["chromium", "firefox"]:
+              with open(f"dist/{target}/manifest.json") as f:
+                  m = json.load(f)
+              csp_obj = m.get("content_security_policy", {})
+              if isinstance(csp_obj, dict):
+                  csp = csp_obj.get("extension_pages", "")
+              else:
+                  csp = str(csp_obj)
+
+              if "unsafe-inline" in csp and "script-src" in csp:
+                  errors.append(f"{target} CSP allows unsafe-inline for scripts!")
+              if "unsafe-inline" in csp and "style-src" in csp:
+                  errors.append(f"{target} CSP allows unsafe-inline for styles!")
+              print(f"  {target} CSP: {csp}")
+
+          if errors:
+              for e in errors:
+                  print(f"ERROR: {e}")
+              sys.exit(1)
+
+          print("CSP checks passed.")
+          PYEOF
 
       - name: Verify builds are identical except manifests
         run: |
