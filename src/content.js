@@ -311,7 +311,7 @@ const replaceCallback = (match) => {
   // Step 2: Try case-insensitive match using our pre-built lowercase map.
   // This is also O(1) — we lowercase the match and look it up directly.
   // OLD APPROACH: Looped through ALL keys comparing case-insensitively — O(n)!
-  // NEW APPROACH: Direct hash lookup — O(1), instant even with 255 rules.
+  // NEW APPROACH: Direct hash lookup — O(1), instant regardless of rule count.
   const lowerMatch = match.toLowerCase();
   if (wordMapCacheLower[lowerMatch]) {
     return wordMapCacheLower[lowerMatch].replacement;

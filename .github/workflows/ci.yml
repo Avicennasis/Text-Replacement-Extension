@@ -119,15 +119,17 @@ jobs:
           import re, os, sys, glob
 
           # Scan source files for external URLs outside of comments.
-          # We use a simple line-by-line approach:
-          #   1. Strip // single-line comments from JS
-          #   2. Strip <!-- ... --> HTML comments (single-line)
-          #   3. Strip /* ... */ block comments (single-line)
-          #   4. Search the remaining code for http:// or https:// URLs
+          # Handles both single-line and multi-line comment styles:
+          #   1. Track /* ... */ block comments across multiple lines
+          #   2. Strip // single-line comments from JS
+          #   3. Strip <!-- ... --> HTML comments (single-line)
+          #   4. Strip remaining single-line /* ... */ fragments
+          #   5. Search the remaining code for http:// or https:// URLs
           # This avoids false positives from URLs in documentation comments
           # while catching any URL that would actually execute at runtime.
 
           url_pattern = re.compile(r'https?://[a-zA-Z]')
+          # Patterns for single-line comment removal (applied AFTER block comment tracking)
           comment_patterns = [
               re.compile(r'//.*$'),           # JS single-line comments
               re.compile(r'/\*.*?\*/'),        # JS/CSS block comments (single-line)
@@ -140,12 +142,42 @@ jobs:
                   continue
               if not filepath.endswith(('.js', '.html', '.css')):
                   continue
+
+              in_block_comment = False
               with open(filepath) as f:
                   for lineno, line in enumerate(f, 1):
-                      # Strip comments from the line before checking for URLs
                       stripped = line
+
+                      # Handle multi-line /* ... */ block comments.
+                      # These span across lines, so we track state between lines.
+                      if in_block_comment:
+                          # We're inside a block comment — look for the closing */
+                          close_idx = stripped.find('*/')
+                          if close_idx == -1:
+                              continue  # Entire line is inside the block comment
+                          # Block comment ends on this line — keep only the part after */
+                          stripped = stripped[close_idx + 2:]
+                          in_block_comment = False
+
+                      # Check for block comment openings on this line.
+                      # A line like: code /* comment */ more code /* start...
+                      # may have multiple /* tokens. We process left-to-right.
+                      while '/*' in stripped:
+                          open_idx = stripped.find('/*')
+                          close_idx = stripped.find('*/', open_idx + 2)
+                          if close_idx != -1:
+                              # Block comment opens and closes on same line — remove it
+                              stripped = stripped[:open_idx] + stripped[close_idx + 2:]
+                          else:
+                              # Block comment opens but doesn't close — rest of line is comment
+                              stripped = stripped[:open_idx]
+                              in_block_comment = True
+                              break
+
+                      # Strip single-line comments (// and <!-- -->)
                       for cp in comment_patterns:
                           stripped = cp.sub('', stripped)
+
                       if url_pattern.search(stripped):
                           found.append(f"  {filepath}:{lineno}: {line.rstrip()}")
 

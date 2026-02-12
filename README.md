@@ -17,12 +17,12 @@ A powerful, secure, and modern browser extension that automatically replaces tex
 ### Performance & Safety
 *   **Smart Performance**:
     *   Processes only newly-added content (10-100x faster on dynamic sites like Twitter/Reddit)
-    *   Supports up to 255 rules with instant O(1) lookup performance
+    *   Instant O(1) lookup performance with up to 100+ rules (limited by browser's 8 KB sync storage per-item quota)
     *   100ms timeout protection prevents browser hangs on complex patterns
     *   Optimized regex compilation with longest-match-first sorting
     *   Throttled timeout checks (every 50th match) to minimize overhead
 *   **Safety Features**:
-    *   Maximum rule limits (255 rules, 255 chars per pattern) prevent performance issues
+    *   Maximum rule limits (255 chars per pattern) and browser storage quota checks prevent performance issues
     *   Intelligently skips inputs, text areas, and editable content to avoid breaking websites
     *   Browser storage quota validation with clear error messages
     *   Strict Content Security Policy (CSP) — no `unsafe-inline` for scripts or styles

@@ -39,14 +39,17 @@ const QUOTA_BYTES_PER_ITEM = chrome.storage.sync.QUOTA_BYTES_PER_ITEM || 8192; /
 //   the regex engine to backtrack excessively.
 // These are generous limits that 99% of users will never hit.
 // -----------------------------------------------------------------------------
-const MAX_RULES = 255; // Maximum number of replacement rules allowed
+// Hard ceiling on rule count. In practice, the browser's 8 KB per-item
+// sync storage limit (~130 rules at typical lengths) is hit well before this.
+// This constant exists as a secondary safety net for regex performance.
+const MAX_RULES = 255;
 const MAX_PATTERN_LENGTH = 255; // Maximum characters per original or replacement text
 
 // Maximum import file size (in bytes). This prevents the browser from freezing
 // if a user accidentally selects a very large file. The FileReader API will
 // attempt to read the entire file into memory at once, so we check the size
-// upfront. 1 MB is far more than enough — even 255 rules at maximum length
-// would only produce ~130 KB of JSON. This is a client-side safety measure.
+// upfront. 1 MB is far more than enough — even at maximum capacity the rules
+// JSON would be well under 100 KB. This is a client-side safety measure.
 const MAX_IMPORT_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
 
 // -----------------------------------------------------------------------------
@@ -267,7 +270,7 @@ function loadSettings() {
     chrome.storage.sync.get('extensionEnabled', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to load settings:', chrome.runtime.lastError);
-            showStatus('Error loading settings. Please refresh the page.', true);
+            showStatus('Failed to load settings. Please refresh the page.', true);
             return;
         }
 
@@ -286,7 +289,7 @@ function updateMasterSwitch(isEnabled) {
     chrome.storage.sync.set({ extensionEnabled: isEnabled }, () => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to save master switch setting:', chrome.runtime.lastError);
-            showStatus('Error saving setting.', true);
+            showStatus('Failed to save setting.', true);
         } else {
             showStatus(isEnabled ? 'Extension Enabled' : 'Extension Disabled');
             Logger.debug('Master switch updated:', isEnabled);
@@ -312,7 +315,7 @@ function loadWordMap() {
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to load word map:', chrome.runtime.lastError);
-            showStatus('Error loading rules. Please refresh the page.', true);
+            showStatus('Failed to load rules. Please refresh the page.', true);
             return;
         }
 
@@ -340,6 +343,15 @@ function loadWordMap() {
         });
 
         replacementList.appendChild(fragment);
+
+        // Preserve the active search filter after rebuilding the table.
+        // Without this, removing or renaming a rule (which triggers a rebuild)
+        // would clear the user's search results, forcing them to re-type their
+        // search query. We re-apply the filter so the UI feels seamless.
+        const searchBox = document.getElementById('searchBox');
+        if (searchBox && searchBox.value.trim()) {
+            filterRules(searchBox.value);
+        }
     });
 }
 
@@ -529,7 +541,7 @@ function updateReplacement(originalText, field, newValue) {
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to get word map for update:', chrome.runtime.lastError);
-            showStatus('Error loading data. Changes not saved.', true);
+            showStatus('Failed to load data. Changes not saved.', true);
             loadWordMap();
             return;
         }
@@ -588,7 +600,7 @@ function updateReplacement(originalText, field, newValue) {
         chrome.storage.sync.set({ wordMap }, () => {
             if (chrome.runtime.lastError) {
                 Logger.error('Failed to save replacement update:', chrome.runtime.lastError);
-                showStatus('Error saving changes.', true);
+                showStatus('Failed to save changes.', true);
                 loadWordMap(); // Revert on failure
             } else {
                 Logger.debug('Word map updated successfully');
@@ -657,7 +669,7 @@ function addReplacement() {
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to get word map for adding rule:', chrome.runtime.lastError);
-            showStatus('Error loading data. Rule not added.', true);
+            showStatus('Failed to load data. Rule not added.', true);
             return;
         }
 
@@ -693,12 +705,19 @@ function addReplacement() {
         chrome.storage.sync.set({ wordMap }, () => {
             if (chrome.runtime.lastError) {
                 Logger.error('Failed to add new replacement:', chrome.runtime.lastError);
-                showStatus('Error adding replacement. Storage full?', true);
+                showStatus('Failed to add replacement. Storage full?', true);
             } else {
                 Logger.debug('New replacement added:', newOriginal, '\u2192', newReplacement);
 
                 // Update UI instantly without a full table reload
                 addRowToTable(newOriginal, newReplacement, newCaseSensitive, true);
+
+                // If a search filter is active, re-apply it so the new row
+                // is hidden if it doesn't match the current search query.
+                const searchBox = document.getElementById('searchBox');
+                if (searchBox && searchBox.value.trim()) {
+                    filterRules(searchBox.value);
+                }
 
                 // Clear input fields so the user can add the next rule immediately
                 document.getElementById('newOriginal').value = '';
@@ -721,7 +740,7 @@ function removeReplacement(originalText) {
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to get word map for removal:', chrome.runtime.lastError);
-            showStatus('Error loading data. Rule not removed.', true);
+            showStatus('Failed to load data. Rule not removed.', true);
             return;
         }
 
@@ -731,7 +750,7 @@ function removeReplacement(originalText) {
         chrome.storage.sync.set({ wordMap }, () => {
             if (chrome.runtime.lastError) {
                 Logger.error('Failed to save after removal:', chrome.runtime.lastError);
-                showStatus('Error removing replacement.', true);
+                showStatus('Failed to remove replacement.', true);
                 loadWordMap(); // Revert to previous state
             } else {
                 Logger.debug('Replacement removed:', originalText);
@@ -771,6 +790,12 @@ function showStatus(message, isError = false) {
         // without relying on color alone (WCAG 1.4.1 — Use of Color).
         statusEl.textContent = isError ? `Error: ${message}` : message;
         statusEl.style.color = isError ? '#ff1744' : '#00e676';
+        // Match the text-shadow glow to the message type. The CSS default is
+        // green, which looks wrong when the text is red. This keeps the glow
+        // consistent with the text color for visual coherence.
+        statusEl.style.textShadow = isError
+            ? '0 0 10px rgba(255, 23, 68, 0.3)'
+            : '0 0 10px rgba(0, 230, 118, 0.3)';
 
         // Auto-clear after the configured duration
         statusTimeout = setTimeout(() => {
@@ -795,7 +820,7 @@ function exportRules() {
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
             Logger.error('Failed to get word map for export:', chrome.runtime.lastError);
-            showStatus('Error loading rules for export.', true);
+            showStatus('Failed to load rules for export.', true);
             return;
         }
 
@@ -922,7 +947,7 @@ function importRules(file) {
             chrome.storage.sync.get('wordMap', (data) => {
                 if (chrome.runtime.lastError) {
                     Logger.error('Failed to get word map for import:', chrome.runtime.lastError);
-                    showStatus('Error loading current rules.', true);
+                    showStatus('Failed to load current rules.', true);
                     return;
                 }
 
@@ -955,7 +980,7 @@ function importRules(file) {
                 chrome.storage.sync.set({ wordMap: finalRules }, () => {
                     if (chrome.runtime.lastError) {
                         Logger.error('Failed to save imported rules:', chrome.runtime.lastError);
-                        showStatus('Error saving imported rules.', true);
+                        showStatus('Failed to save imported rules.', true);
                     } else {
                         Logger.debug('Import successful:', finalCount, 'total rules');
                         loadWordMap(); // Refresh the UI
@@ -972,7 +997,7 @@ function importRules(file) {
 
     reader.onerror = () => {
         Logger.error('Failed to read import file:', reader.error);
-        showStatus('Error reading file. Please try again.', true);
+        showStatus('Failed to read file. Please try again.', true);
     };
 
     reader.readAsText(file);
