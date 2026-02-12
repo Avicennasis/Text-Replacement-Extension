@@ -2,7 +2,7 @@
 
 A powerful, secure, and modern browser extension that automatically replaces text on websites you visit. Works with **Google Chrome**, **Microsoft Edge**, **Opera**, and **Firefox** — all from a single codebase.
 
-> **Unified Codebase:** This repository replaces the previous separate repos ([Chromium-Text-Replacement](https://github.com/Avicennasis/Chromium-Text-Replacement) and [Firefox-Text-Replacement](https://github.com/Avicennasis/Firefox-Text-Replacement)). Both browsers now share identical source code, with only the manifest file differing.
+> **Unified Codebase:** Both browsers share identical source code, with only the manifest file differing between Chromium and Firefox builds.
 
 ## Features
 
