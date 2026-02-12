@@ -1,3 +1,5 @@
+'use strict';
+
 // manage.js
 // -----------------------------------------------------------------------------
 // MANAGEMENT PAGE UI SCRIPT
@@ -70,9 +72,32 @@ const ENABLE_DEBUG_LOGGING = false; // Toggle for debug logs
 // service workers, and extension pages run in isolated contexts with no shared module system
 // that works across all supported browsers. This is NOT a code smell — it's a requirement.
 const Logger = {
+    /**
+     * Logs informational messages (always shown, even when debug is off).
+     * Use for important events like "Extension installed".
+     */
     info: (message, ...args) => console.log(`[Text Replacement] ${message}`, ...args),
-    debug: (message, ...args) => ENABLE_DEBUG_LOGGING && console.log(`[Text Replacement DEBUG] ${message}`, ...args),
+
+    /**
+     * Logs debug messages (only shown when ENABLE_DEBUG_LOGGING is true).
+     * Use for detailed technical information during development.
+     */
+    debug: (message, ...args) => {
+        if (ENABLE_DEBUG_LOGGING) {
+            console.log(`[Text Replacement DEBUG] ${message}`, ...args);
+        }
+    },
+
+    /**
+     * Logs warnings (always shown).
+     * Use for recoverable problems or unexpected situations.
+     */
     warn: (message, ...args) => console.warn(`[Text Replacement WARNING] ${message}`, ...args),
+
+    /**
+     * Logs errors (always shown).
+     * Use for actual failures and exceptions.
+     */
     error: (message, ...args) => console.error(`[Text Replacement ERROR] ${message}`, ...args)
 };
 
@@ -160,6 +185,13 @@ function validateStorageQuota(wordMap) {
  */
 function validateImportedRules(rules) {
     for (const [key, value] of Object.entries(rules)) {
+        // Reject empty keys — an empty original text would create a zero-width
+        // regex alternation (e.g., "cat||dog") that matches at every character
+        // boundary, causing replacements to fire between every character.
+        if (key.length === 0) {
+            return 'Invalid rule: empty original text is not allowed. Every rule must specify the text to find.';
+        }
+
         // Validate original text (key) length
         if (key.length > MAX_PATTERN_LENGTH) {
             return `Rule "${key.substring(0, 30)}..." exceeds the maximum pattern length of ${MAX_PATTERN_LENGTH} characters.`;
@@ -350,12 +382,11 @@ function loadWordMap() {
         // only needs to recalculate layout once instead of N times.
         const fragment = document.createDocumentFragment();
 
-        Object.keys(wordMap).forEach(originalText => {
-            const ruleData = wordMap[originalText];
+        for (const [originalText, ruleData] of Object.entries(wordMap)) {
             // Handle older data formats that may not have the 'enabled' property
             const enabled = ruleData.enabled !== false;
             addRowToTable(originalText, ruleData.replacement, ruleData.caseSensitive, enabled, fragment);
-        });
+        }
 
         replacementList.appendChild(fragment);
 
@@ -510,6 +541,8 @@ function addRowToTable(originalText, replacement, caseSensitive, enabled, contai
 
 /**
  * Updates a specific field of an existing rule in storage.
+ * Data never leaves your browser — updates are saved to local
+ * chrome.storage.sync only.
  * Handles renaming (changing the original text key), toggling settings,
  * and editing replacement text.
  *
@@ -644,6 +677,8 @@ function updateReplacement(originalText, field, newValue) {
 
 /**
  * Adds a brand new replacement rule.
+ * Data never leaves your browser — rules are saved to chrome.storage.sync,
+ * which is local storage synced only through your own browser account.
  *
  * VALIDATION:
  * - Original text must not be empty (would match nothing).
@@ -711,8 +746,8 @@ function addReplacement() {
         // would be ignored with no warning. This check prevents that confusion.
         if (!newCaseSensitive) {
             const newLower = newOriginal.toLowerCase();
-            for (const [key, data] of Object.entries(wordMap)) {
-                if (!data.caseSensitive && key.toLowerCase() === newLower) {
+            for (const [key, ruleData] of Object.entries(wordMap)) {
+                if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
                     showStatus(`A case-insensitive rule for "${key}" already exists. Change it to case-sensitive or use the existing rule.`, true);
                     return;
                 }
@@ -764,10 +799,19 @@ function addReplacement() {
 
 /**
  * Removes a replacement rule permanently.
+ * Data never leaves your browser — the deletion is applied to local
+ * chrome.storage.sync only.
  *
  * @param {string} originalText - The key of the rule to remove.
  */
 function removeReplacement(originalText) {
+    // Confirm before deleting to prevent accidental data loss.
+    // Unlike adding or editing a rule (which can be undone by editing again),
+    // deletion is permanent — the rule data is erased from storage.
+    if (!confirm(`Remove the rule for "${originalText}"?`)) {
+        return;
+    }
+
     // Read fresh data from storage to prevent race conditions
     chrome.storage.sync.get('wordMap', (data) => {
         if (chrome.runtime.lastError) {
@@ -821,13 +865,13 @@ function showStatus(message, isError = false) {
         // color vision deficiency can distinguish errors from success messages
         // without relying on color alone (WCAG 1.4.1 — Use of Color).
         statusEl.textContent = isError ? `Error: ${message}` : message;
-        statusEl.style.color = isError ? '#ff1744' : '#00e676';
-        // Match the text-shadow glow to the message type. The CSS default is
-        // green, which looks wrong when the text is red. This keeps the glow
-        // consistent with the text color for visual coherence.
-        statusEl.style.textShadow = isError
-            ? '0 0 10px rgba(255, 23, 68, 0.3)'
-            : '0 0 10px rgba(0, 230, 118, 0.3)';
+
+        // Use CSS classes instead of inline styles (element.style) to stay
+        // fully aligned with the strict Content Security Policy. The classes
+        // .status-error and .status-success are defined in manage.css and
+        // set the text color and glow to match the message type.
+        statusEl.classList.toggle('status-error', isError);
+        statusEl.classList.toggle('status-success', !isError);
 
         // Auto-clear after the configured duration
         statusTimeout = setTimeout(() => {
@@ -845,6 +889,8 @@ function showStatus(message, isError = false) {
 
 /**
  * Exports all replacement rules to a downloadable JSON file.
+ * Data never leaves your browser — the file is generated entirely in-memory
+ * and downloaded directly to your device. No server is contacted.
  * The file includes metadata (version, timestamp, rule count) for future
  * compatibility and user reference.
  */
@@ -900,6 +946,8 @@ function exportRules() {
 
 /**
  * Imports replacement rules from a JSON file.
+ * Data never leaves your browser — the file is read entirely on your device
+ * using the FileReader API. No server is contacted during import.
  * Users can choose to REPLACE all existing rules or MERGE with them.
  *
  * VALIDATION:
@@ -917,8 +965,13 @@ function importRules(file) {
         return;
     }
 
-    // Basic file type check (defense-in-depth; the file input also has accept=".json")
-    if (!file.name.endsWith('.json')) {
+    // Basic file type check (defense-in-depth; the file input also has accept=".json").
+    // Accept either a valid extension OR a valid MIME type — some OS/browser
+    // combinations only set one or the other (e.g., Windows may not set the
+    // MIME type for .json files, while drag-and-drop on some Linux desktops
+    // may set the MIME type but not preserve the extension).
+    const isJson = file.name.endsWith('.json') || file.type === 'application/json';
+    if (!isJson) {
         showStatus('Please select a valid JSON file!', true);
         return;
     }
@@ -1083,17 +1136,20 @@ function filterRules(query) {
         }
     });
 
-    // Update the search results counter
+    // Update the search results counter.
+    // Use CSS classes instead of inline styles (element.style.color) to stay
+    // fully aligned with the strict Content Security Policy. Classes are
+    // defined in manage.css: .search-no-match (red) and .search-partial (accent).
     const resultsEl = document.getElementById('searchResults');
+    resultsEl.classList.remove('search-no-match', 'search-partial');
     if (visibleCount === 0) {
         resultsEl.textContent = 'No matches found';
-        resultsEl.style.color = '#ff1744';
+        resultsEl.classList.add('search-no-match');
     } else if (visibleCount === totalCount) {
         resultsEl.textContent = `Showing all ${totalCount} rules`;
-        resultsEl.style.color = 'var(--text-muted)';
     } else {
         resultsEl.textContent = `Showing ${visibleCount} of ${totalCount} rules`;
-        resultsEl.style.color = 'var(--primary)';
+        resultsEl.classList.add('search-partial');
     }
 
     Logger.debug('Search query:', searchQuery, '| Visible:', visibleCount, '/', totalCount);

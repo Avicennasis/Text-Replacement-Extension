@@ -48,8 +48,9 @@
         <form id="addReplacementForm" class="add-section" aria-label="Add new replacement rule">
             <div class="input-group">
                 <label for="newOriginal">Original String</label>
+                <!-- maxlength mirrors MAX_PATTERN_LENGTH (255) in manage.js -->
                 <input type="text" id="newOriginal" name="newOriginal" placeholder="e.g. 'cat'" required
-                    autocomplete="off" aria-label="Text to find and replace" aria-required="true">
+                    autocomplete="off" maxlength="255" aria-label="Text to find and replace" aria-required="true">
             </div>
 
             <div class="input-group">
@@ -59,9 +60,10 @@
                     Leaving this field empty means the matched text will be deleted (removed)
                     from the page entirely. This is an intentional feature, not an oversight.
                 -->
+                <!-- maxlength mirrors MAX_PATTERN_LENGTH (255) in manage.js -->
                 <input type="text" id="newReplacement" name="newReplacement"
                     placeholder="e.g. 'dog' (leave empty to delete text)"
-                    autocomplete="off" aria-label="Text to replace it with (leave empty to delete matched text)">
+                    autocomplete="off" maxlength="255" aria-label="Text to replace it with (leave empty to delete matched text)">
             </div>
 
             <div class="input-group input-group-toggle">
@@ -90,12 +92,14 @@
                 <thead>
                     <tr>
                         <!-- scope="col" helps screen readers understand table structure
-                             by explicitly marking these as column headers, not row headers. -->
-                        <th scope="col" width="30%">Original String</th>
-                        <th scope="col" width="30%">Replacement String</th>
-                        <th scope="col" width="10%" class="text-center">Match Case</th>
-                        <th scope="col" width="10%" class="text-center">Enabled</th>
-                        <th scope="col" width="20%" aria-label="Actions">
+                             by explicitly marking these as column headers, not row headers.
+                             Column widths are set via CSS (th:nth-child rules in manage.css)
+                             instead of the deprecated HTML width attribute. -->
+                        <th scope="col">Original String</th>
+                        <th scope="col">Replacement String</th>
+                        <th scope="col" class="text-center">Match Case</th>
+                        <th scope="col" class="text-center">Enabled</th>
+                        <th scope="col" aria-label="Actions">
                             <span class="hidden">Actions</span>
                         </th>
                     </tr>

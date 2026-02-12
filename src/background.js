@@ -1,3 +1,5 @@
+'use strict';
+
 // background.js
 // -----------------------------------------------------------------------------
 // BACKGROUND SERVICE WORKER
@@ -28,9 +30,32 @@ const ENABLE_DEBUG_LOGGING = false; // Toggle for debug logs
 // service workers, and extension pages run in isolated contexts with no shared module system
 // that works across all supported browsers. This is NOT a code smell — it's a requirement.
 const Logger = {
+  /**
+   * Logs informational messages (always shown, even when debug is off).
+   * Use for important events like "Extension installed".
+   */
   info: (message, ...args) => console.log(`[Text Replacement] ${message}`, ...args),
-  debug: (message, ...args) => ENABLE_DEBUG_LOGGING && console.log(`[Text Replacement DEBUG] ${message}`, ...args),
+
+  /**
+   * Logs debug messages (only shown when ENABLE_DEBUG_LOGGING is true).
+   * Use for detailed technical information during development.
+   */
+  debug: (message, ...args) => {
+    if (ENABLE_DEBUG_LOGGING) {
+      console.log(`[Text Replacement DEBUG] ${message}`, ...args);
+    }
+  },
+
+  /**
+   * Logs warnings (always shown).
+   * Use for recoverable problems or unexpected situations.
+   */
   warn: (message, ...args) => console.warn(`[Text Replacement WARNING] ${message}`, ...args),
+
+  /**
+   * Logs errors (always shown).
+   * Use for actual failures and exceptions.
+   */
   error: (message, ...args) => console.error(`[Text Replacement ERROR] ${message}`, ...args)
 };
 

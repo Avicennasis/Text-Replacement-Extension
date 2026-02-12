@@ -32,6 +32,17 @@ else
     TARGETS=("chromium" "firefox")
 fi
 
+# Pre-flight check: verify all required source files exist before copying.
+# This gives a clear, descriptive error instead of a cryptic "cp: cannot stat"
+# message, making it easier to diagnose issues (especially in CI).
+REQUIRED_FILES=("content.js" "manage.js" "manage.html" "manage.css" "background.js")
+for required in "${REQUIRED_FILES[@]}"; do
+    if [ ! -f "$SRC_DIR/$required" ]; then
+        echo "ERROR: Missing source file: src/$required"
+        exit 1
+    fi
+done
+
 echo "Building Text Replacement Extension..."
 echo ""
 

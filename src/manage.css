@@ -485,3 +485,52 @@ td input[type="text"]:focus {
 .hidden {
     display: none;
 }
+
+/* =========================================================================
+   STATUS MESSAGE CLASSES
+   Used by showStatus() in manage.js instead of inline styles (element.style)
+   to maintain full CSP compliance. Toggle between these classes rather than
+   setting element.style.color and element.style.textShadow directly.
+   ========================================================================= */
+.status-success {
+    color: #00e676;
+    text-shadow: 0 0 10px rgba(0, 230, 118, 0.3);
+}
+
+.status-error {
+    color: #ff1744;
+    text-shadow: 0 0 10px rgba(255, 23, 68, 0.3);
+}
+
+/* =========================================================================
+   SEARCH RESULTS STATE CLASSES
+   Used by filterRules() in manage.js instead of inline styles to maintain
+   full CSP compliance. Applied to the #searchResults element.
+   ========================================================================= */
+.search-no-match {
+    color: #ff1744;
+}
+
+.search-partial {
+    color: var(--primary);
+}
+
+/* =========================================================================
+   TABLE COLUMN WIDTHS
+   Replaces deprecated HTML width="..." attributes on <th> elements.
+   Defined here in CSS for standards compliance (width attribute on <th>
+   was deprecated in HTML5).
+   ========================================================================= */
+th:nth-child(1),
+th:nth-child(2) {
+    width: 30%;
+}
+
+th:nth-child(3),
+th:nth-child(4) {
+    width: 10%;
+}
+
+th:nth-child(5) {
+    width: 20%;
+}

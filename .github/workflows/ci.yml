@@ -210,9 +210,21 @@ jobs:
               else:
                   csp = str(csp_obj)
 
-              if "unsafe-inline" in csp and "script-src" in csp:
+              # Parse CSP directives properly instead of checking substrings
+              # on the full string. The old approach ("unsafe-inline" in csp and
+              # "script-src" in csp) would false-positive when unsafe-inline
+              # appeared in a DIFFERENT directive (e.g., style-src) but script-src
+              # was also present. Splitting by ";" and checking each directive
+              # independently prevents cross-directive confusion.
+              directives = {}
+              for part in csp.split(";"):
+                  tokens = part.strip().split()
+                  if tokens:
+                      directives[tokens[0]] = tokens[1:]
+
+              if "'unsafe-inline'" in directives.get("script-src", []):
                   errors.append(f"{target} CSP allows unsafe-inline for scripts!")
-              if "unsafe-inline" in csp and "style-src" in csp:
+              if "'unsafe-inline'" in directives.get("style-src", []):
                   errors.append(f"{target} CSP allows unsafe-inline for styles!")
               print(f"  {target} CSP: {csp}")
 

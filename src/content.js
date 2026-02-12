@@ -1,3 +1,5 @@
+'use strict';
+
 // content.js
 // -----------------------------------------------------------------------------
 // TEXT REPLACEMENT CONTENT SCRIPT
@@ -118,6 +120,20 @@ function escapeRegExp(string) {
 function buildRegex(words, caseSensitive) {
   if (words.length === 0) return null;
 
+  // Filter out empty strings before building the regex. An empty string in
+  // the alternation (e.g., "cat||dog") creates a zero-width match at every
+  // character boundary, causing the regex to fire replaceCallback between
+  // every character in the text — massive performance hit and wrong results.
+  words = words.filter(w => w.length > 0);
+  if (words.length === 0) return null;
+
+  // Sort by ORIGINAL word length (longest first) BEFORE escaping.
+  // This must happen before map() because escaping inflates lengths:
+  // "$5" (2 chars) becomes "\$5" (3 chars), and "\b" anchors add 2 chars.
+  // Sorting after escaping would use inflated lengths, potentially ordering
+  // "cat" (3 chars) before "$5.00" (5 chars → "\$5\.00" = 7 chars).
+  words.sort((a, b) => b.length - a.length);
+
   const patterns = words.map(word => {
     const escaped = escapeRegExp(word);
 
@@ -129,12 +145,6 @@ function buildRegex(words, caseSensitive) {
     const suffix = /\w$/.test(word) ? '\\b' : '';
     return `${prefix}${escaped}${suffix}`;
   });
-
-  // Sort by pattern length (longest first) to prevent partial matches.
-  // For example, with rules for both "super" and "superman":
-  //   - Without sorting: "superman" might match "super" first → "Xman"
-  //   - With sorting: "superman" is checked first → correct replacement
-  patterns.sort((a, b) => b.length - a.length);
 
   // Combine all patterns with | (OR) into one regex.
   // Flags: 'g' = global (find all matches), 'i' = case-insensitive.
@@ -237,9 +247,7 @@ const IGNORED_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT'
  * @returns {boolean} - True if the node is editable and should be skipped.
  */
 function isEditable(node) {
-  if (node.isContentEditable) return true;
-  if (node.parentNode && node.parentNode.isContentEditable) return true;
-  return false;
+  return node.isContentEditable || (node.parentNode?.isContentEditable ?? false);
 }
 
 /**
@@ -360,7 +368,28 @@ function processNode(node) {
   matchCounter = 0;
 
   try {
-    // Apply case-sensitive replacements first.
+    // TWO-PASS REPLACEMENT (cascade design)
+    // ─────────────────────────────────────────────────────────────────────
+    // JavaScript's RegExp does not support per-pattern flags — a single
+    // regex is either case-sensitive or case-insensitive, not both. So we
+    // must use two separate passes: one for case-sensitive rules and one
+    // for case-insensitive rules.
+    //
+    // IMPORTANT: This is a CASCADE — the output of pass 1 feeds into
+    // pass 2. This means if a case-sensitive rule produces text that
+    // matches a case-insensitive rule, the second rule WILL fire. This
+    // behavior is consistent and predictable, analogous to running
+    // sequential find-and-replace operations in a text editor.
+    //
+    // If this is unwanted, the user should avoid creating rules whose
+    // outputs match other rules' inputs. A true "independent merge"
+    // solution (applying all rules to the original text simultaneously)
+    // would be significantly more complex, with its own edge cases around
+    // overlapping matches, and would provide marginal benefit for the
+    // vast majority of use cases.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // Pass 1: Apply case-sensitive replacements first.
     // Order matters: if a word appears in both sensitive and insensitive rules,
     // the sensitive rule takes priority.
     if (sensitiveRegex) {
@@ -371,7 +400,7 @@ function processNode(node) {
       }
     }
 
-    // Apply case-insensitive replacements second.
+    // Pass 2: Apply case-insensitive replacements to the (possibly modified) text.
     if (insensitiveRegex) {
       const newText = text.replace(insensitiveRegex, replaceCallback);
       if (newText !== text) {
