@@ -8,12 +8,14 @@ def run_benchmark():
         context = browser.new_context()
         page = context.new_page()
 
-        # Path to the HTML file
-        cwd = os.getcwd()
-        url = f"file://{cwd}/manage.html"
+        # Path to the HTML file (manage.html lives in the src/ directory)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        url = f"file://{project_root}/src/manage.html"
 
-        # Read the mock script
-        with open('tests/mock_chrome.js', 'r') as f:
+        # Read the mock script (use absolute path so this works regardless of CWD)
+        mock_path = os.path.join(script_dir, 'mock_chrome.js')
+        with open(mock_path, 'r') as f:
             mock_script = f.read()
 
         # Inject mock script before other scripts

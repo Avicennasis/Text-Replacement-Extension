@@ -157,6 +157,20 @@ input:checked + .slider:before {
     box-shadow: 0 0 10px var(--primary);
 }
 
+/* ACCESSIBILITY: Visible focus indicator for keyboard navigation.
+   When a user tabs to a toggle switch, the hidden <input> checkbox receives
+   focus. This rule makes the visible slider show a focus ring so keyboard
+   users can see which toggle is currently selected.
+
+   We use :focus-visible (not :focus) so the ring only appears during keyboard
+   navigation, keeping the UI clean for mouse users. All supported browsers
+   (Chrome 86+, Firefox 85+, Edge 86+, Opera 72+) support :focus-visible. */
+input:focus-visible + .slider {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 4px rgba(0, 242, 254, 0.2);
+}
+
 /* =========================================================================
    MASTER SWITCH
    The global on/off toggle at the top of the page.

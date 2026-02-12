@@ -47,7 +47,7 @@ const sandbox = {
 sandbox.window = sandbox;
 
 // Read content.js
-let code = fs.readFileSync(path.join(__dirname, 'content.js'), 'utf8');
+let code = fs.readFileSync(path.join(__dirname, '..', 'src', 'content.js'), 'utf8');
 
 // Increase timeout for benchmark purposes
 code = code.replace('const REGEX_TIMEOUT_MS = 100;', 'const REGEX_TIMEOUT_MS = 10000;');

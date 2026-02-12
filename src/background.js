@@ -23,6 +23,10 @@
 // -----------------------------------------------------------------------------
 const ENABLE_DEBUG_LOGGING = false; // Toggle for debug logs
 
+// NOTE: This Logger is intentionally duplicated in background.js, content.js, and manage.js.
+// See the comment in content.js for the full explanation. In short: MV3 content scripts,
+// service workers, and extension pages run in isolated contexts with no shared module system
+// that works across all supported browsers. This is NOT a code smell — it's a requirement.
 const Logger = {
   info: (message, ...args) => console.log(`[Text Replacement] ${message}`, ...args),
   debug: (message, ...args) => ENABLE_DEBUG_LOGGING && console.log(`[Text Replacement DEBUG] ${message}`, ...args),

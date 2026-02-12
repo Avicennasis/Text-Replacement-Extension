@@ -54,8 +54,14 @@
 
             <div class="input-group">
                 <label for="newReplacement">Replacement String</label>
-                <input type="text" id="newReplacement" name="newReplacement" placeholder="e.g. 'dog'" required
-                    autocomplete="off" aria-label="Text to replace it with" aria-required="true">
+                <!--
+                    NOTE: No "required" attribute here — empty replacement IS a valid use case.
+                    Leaving this field empty means the matched text will be deleted (removed)
+                    from the page entirely. This is an intentional feature, not an oversight.
+                -->
+                <input type="text" id="newReplacement" name="newReplacement"
+                    placeholder="e.g. 'dog' (leave empty to delete text)"
+                    autocomplete="off" aria-label="Text to replace it with (leave empty to delete matched text)">
             </div>
 
             <div class="input-group input-group-toggle">

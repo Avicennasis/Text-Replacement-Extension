@@ -118,8 +118,10 @@ jobs:
           FOUND=$(grep -rn 'https\?://[a-zA-Z]' src/ --include='*.js' --include='*.html' --include='*.css' \
             | grep -v '// ' | grep -v ' \* ' | grep -v '<!-- ' | grep -v '/\*' || true)
           if [ -n "$FOUND" ]; then
-            echo "WARNING: External URLs found in source files (review for safety):"
+            echo "ERROR: External URLs found in source files:"
             echo "$FOUND"
+            echo "All resources must be bundled locally. See Transparency & Safety in README."
+            exit 1
           else
             echo "No external URLs found in source code."
           fi

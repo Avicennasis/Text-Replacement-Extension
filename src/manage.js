@@ -42,6 +42,13 @@ const QUOTA_BYTES_PER_ITEM = chrome.storage.sync.QUOTA_BYTES_PER_ITEM || 8192; /
 const MAX_RULES = 255; // Maximum number of replacement rules allowed
 const MAX_PATTERN_LENGTH = 255; // Maximum characters per original or replacement text
 
+// Maximum import file size (in bytes). This prevents the browser from freezing
+// if a user accidentally selects a very large file. The FileReader API will
+// attempt to read the entire file into memory at once, so we check the size
+// upfront. 1 MB is far more than enough — even 255 rules at maximum length
+// would only produce ~130 KB of JSON. This is a client-side safety measure.
+const MAX_IMPORT_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
+
 // -----------------------------------------------------------------------------
 // UI CONSTANTS
 // These control the behavior of user interface elements.
@@ -55,6 +62,10 @@ const STATUS_DISPLAY_DURATION_MS = 3000; // How long status messages stay visibl
 // -----------------------------------------------------------------------------
 const ENABLE_DEBUG_LOGGING = false; // Toggle for debug logs
 
+// NOTE: This Logger is intentionally duplicated in background.js, content.js, and manage.js.
+// See the comment in content.js for the full explanation. In short: MV3 content scripts,
+// service workers, and extension pages run in isolated contexts with no shared module system
+// that works across all supported browsers. This is NOT a code smell — it's a requirement.
 const Logger = {
     info: (message, ...args) => console.log(`[Text Replacement] ${message}`, ...args),
     debug: (message, ...args) => ENABLE_DEBUG_LOGGING && console.log(`[Text Replacement DEBUG] ${message}`, ...args),
@@ -715,7 +726,10 @@ function showStatus(message, isError = false) {
             clearTimeout(statusTimeout);
         }
 
-        statusEl.textContent = message;
+        // Prefix error messages with "Error: " so screen readers and users with
+        // color vision deficiency can distinguish errors from success messages
+        // without relying on color alone (WCAG 1.4.1 — Use of Color).
+        statusEl.textContent = isError ? `Error: ${message}` : message;
         statusEl.style.color = isError ? '#ff1744' : '#00e676';
 
         // Auto-clear after the configured duration
@@ -809,6 +823,15 @@ function importRules(file) {
     // Basic file type check (defense-in-depth; the file input also has accept=".json")
     if (!file.name.endsWith('.json')) {
         showStatus('Please select a valid JSON file!', true);
+        return;
+    }
+
+    // Guard against extremely large files that could freeze the browser.
+    // The FileReader API will attempt to read the entire file into memory,
+    // so we check the size upfront. See MAX_IMPORT_FILE_SIZE for the limit.
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        showStatus(`File too large (${sizeMB} MB)! Maximum import file size is 1 MB.`, true);
         return;
     }
 

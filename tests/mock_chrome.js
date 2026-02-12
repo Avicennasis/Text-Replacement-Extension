@@ -22,6 +22,11 @@ window.chrome = {
             set: (items, callback) => {
                 if (callback) callback();
             }
+        },
+        // Mock for chrome.storage.onChanged — manage.js adds a listener here
+        // to detect changes from other tabs. In tests, we just need a no-op.
+        onChanged: {
+            addListener: () => {}
         }
     }
 };

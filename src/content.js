@@ -36,6 +36,12 @@ const REGEX_TIMEOUT_MS = 100; // Maximum time (in milliseconds) to process a sin
 // -----------------------------------------------------------------------------
 const ENABLE_DEBUG_LOGGING = false; // Toggle this to enable/disable debug logs
 
+// NOTE: This Logger is intentionally duplicated in background.js, content.js, and manage.js.
+// In Manifest V3, content scripts, background service workers, and extension pages each run
+// in isolated JavaScript contexts. There is no shared module system that works across all
+// three contexts in all supported browsers (Chrome, Edge, Opera, Firefox). Attempting to
+// share via ES modules would break Firefox compatibility. The duplication is small (~10 lines)
+// and intentional — this is NOT a code smell, it's a cross-browser compatibility requirement.
 const Logger = {
   /**
    * Logs informational messages (always shown, even when debug is off).
@@ -142,8 +148,15 @@ function buildRegex(words, caseSensitive) {
 // -----------------------------------------------------------------------------
 let sensitiveRegex = null;   // Compiled regex for case-sensitive rules
 let insensitiveRegex = null; // Compiled regex for case-insensitive rules
-let wordMapCache = {};       // O(1) lookup map: exact original text → rule data
-let wordMapCacheLower = {};  // O(1) lookup map: lowercased text → rule data (for case-insensitive)
+// Object.create(null) creates a "bare" object with NO inherited properties.
+// A regular {} inherits methods like toString, valueOf, constructor from
+// Object.prototype. If someone creates a rule to replace the word "toString",
+// a regular {} lookup would return the inherited toString FUNCTION (truthy!),
+// and .replacement would be undefined — replacing the matched text with the
+// literal string "undefined". Object.create(null) prevents this by creating
+// an object with zero inherited properties — only our explicitly-added rules exist.
+let wordMapCache = Object.create(null);       // O(1) lookup map: exact original text → rule data
+let wordMapCacheLower = Object.create(null);  // O(1) lookup map: lowercased text → rule data (for case-insensitive)
 let extensionEnabled = true; // Master on/off switch state
 
 // Timeout tracking variables for the replaceCallback safety mechanism.
@@ -168,8 +181,10 @@ let matchCounter = 0;            // Counts matches to throttle performance.now()
 function updateRegexes(wordMap) {
   const sensitiveWords = [];
   const insensitiveWords = [];
-  const activeMap = {};
-  const activeLowerMap = {};
+  // Use Object.create(null) to prevent prototype pollution — see explanation
+  // at the wordMapCache/wordMapCacheLower declarations above.
+  const activeMap = Object.create(null);
+  const activeLowerMap = Object.create(null);
 
   for (const [word, data] of Object.entries(wordMap)) {
     // Only include rules that are explicitly enabled.
@@ -225,6 +240,35 @@ function isEditable(node) {
   if (node.isContentEditable) return true;
   if (node.parentNode && node.parentNode.isContentEditable) return true;
   return false;
+}
+
+/**
+ * Determines whether a DOM node should be processed for text replacement.
+ * Checks that the node is still attached to the DOM, is not inside an
+ * ignored tag (SCRIPT, STYLE, etc.), and is not in an editable area.
+ *
+ * This is the single source of truth for "should we touch this node?" logic.
+ * It is used by processNode(), processDocument(), and processElement() to
+ * ensure consistent safety filtering in one place. Having this centralized
+ * means a fix here automatically protects all code paths.
+ *
+ * @param {Node} node - The DOM node to check (typically a Text node).
+ * @returns {boolean} - True if the node should be processed, false to skip it.
+ */
+function shouldProcessNode(node) {
+  // Guard against detached nodes. MutationObserver can fire for nodes that
+  // were removed from the DOM between when the mutation was recorded and
+  // when this callback runs. Without this check, accessing parentNode.tagName
+  // would throw a TypeError (Cannot read properties of null).
+  if (!node.parentNode) return false;
+
+  // Skip nodes inside tags we should never modify (SCRIPT, STYLE, etc.)
+  if (IGNORED_TAGS.has(node.parentNode.tagName)) return false;
+
+  // Skip nodes inside editable areas (contentEditable, rich text editors)
+  if (isEditable(node.parentNode)) return false;
+
+  return true;
 }
 
 // -----------------------------------------------------------------------------
@@ -296,9 +340,10 @@ const replaceCallback = (match) => {
  */
 function processNode(node) {
   // Safety guards: skip processing if the extension is off, or if this node
-  // is inside a tag we should never touch (scripts, textareas, etc.).
+  // is detached, inside a tag we should never touch (scripts, textareas, etc.),
+  // or inside an editable area. See shouldProcessNode() for full details.
   if (!extensionEnabled) return;
-  if (IGNORED_TAGS.has(node.parentNode.tagName) || isEditable(node.parentNode)) return;
+  if (!shouldProcessNode(node)) return;
 
   let text = node.nodeValue;
   let changed = false;
@@ -369,9 +414,11 @@ function processDocument() {
     NodeFilter.SHOW_TEXT,
     {
       acceptNode: (node) => {
-        // Reject nodes inside ignored tags or editable areas immediately.
-        // FILTER_REJECT skips the node AND its children (performance optimization).
-        if (IGNORED_TAGS.has(node.parentNode.tagName) || isEditable(node.parentNode)) {
+        // Use the shared safety filter (checks for detached nodes, ignored tags,
+        // and editable areas). For text nodes (SHOW_TEXT filter), FILTER_REJECT
+        // and FILTER_SKIP are equivalent because text nodes have no children
+        // to skip over. We use FILTER_REJECT by convention.
+        if (!shouldProcessNode(node)) {
           return NodeFilter.FILTER_REJECT;
         }
         return NodeFilter.FILTER_ACCEPT;
@@ -400,8 +447,9 @@ function processElement(element) {
 
   // If it's a bare text node (not wrapped in an element), process it directly.
   if (element.nodeType === Node.TEXT_NODE) {
-    // Check safety filters here since we're bypassing the TreeWalker filter.
-    if (IGNORED_TAGS.has(element.parentNode.tagName) || isEditable(element.parentNode)) {
+    // Use the shared safety filter (checks for detached nodes, ignored tags,
+    // and editable areas) since we're bypassing the TreeWalker filter.
+    if (!shouldProcessNode(element)) {
       return;
     }
     processNode(element);
@@ -416,7 +464,8 @@ function processElement(element) {
       NodeFilter.SHOW_TEXT,
       {
         acceptNode: (node) => {
-          if (IGNORED_TAGS.has(node.parentNode.tagName) || isEditable(node.parentNode)) {
+          // Use the shared safety filter (see shouldProcessNode for details).
+          if (!shouldProcessNode(node)) {
             return NodeFilter.FILTER_REJECT;
           }
           return NodeFilter.FILTER_ACCEPT;
