@@ -8,6 +8,7 @@
 #   4. No external URLs are loaded (privacy/security check).
 #   5. The Content Security Policy does not include 'unsafe-inline'.
 #   6. Source files are identical across browser builds.
+#   7. Replacement engine correctness tests pass (benchmark.js)
 # =============================================================================
 
 name: CI
@@ -264,6 +265,11 @@ jobs:
                   errors.append(f"{target} CSP allows unsafe-inline for styles!")
               if "'unsafe-eval'" in directives.get("script-src", []):
                   errors.append(f"{target} CSP allows unsafe-eval for scripts!")
+
+              # Verify object-src is set to 'none' (no plugins/embeds allowed)
+              if "object-src" not in directives or "'none'" not in directives.get("object-src", []):
+                  errors.append(f"{target} CSP missing 'object-src: none'")
+
               print(f"  {target} CSP: {csp}")
 
           if errors:

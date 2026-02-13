@@ -107,7 +107,7 @@ class RegexTimeoutError extends Error {
 // -----------------------------------------------------------------------------
 
 /**
- * Escapes special characters in a string to safe-guard against regex issues.
+ * Escapes special characters in a string to safeguard against regex issues.
  * This prevents a "Regex Injection" attack and ensures that characters like
  * "." or "*" are treated as literal text, not special regex commands.
  *
@@ -243,12 +243,12 @@ function updateRegexes(wordMap) {
   // with (via DevTools or corrupted sync) to contain thousands of rules, compiling
   // a regex with that many alternatives could freeze the page. We silently truncate
   // to the first 255 entries and log a warning.
-  const MAX_RULES_LIMIT = 255;
+  const MAX_RULES = 255;
   const entries = Object.entries(wordMap);
-  if (entries.length > MAX_RULES_LIMIT) {
-    Logger.warn('wordMap contains', entries.length, 'rules (limit is', MAX_RULES_LIMIT + ') — only the first', MAX_RULES_LIMIT, 'will be used.');
+  if (entries.length > MAX_RULES) {
+    Logger.warn(`wordMap contains ${entries.length} rules (limit is ${MAX_RULES}) — only the first ${MAX_RULES} will be used.`);
   }
-  const entriesToProcess = entries.length > MAX_RULES_LIMIT ? entries.slice(0, MAX_RULES_LIMIT) : entries;
+  const entriesToProcess = entries.length > MAX_RULES ? entries.slice(0, MAX_RULES) : entries;
 
   const sensitiveWords = [];
   const insensitiveWords = [];
@@ -270,7 +270,7 @@ function updateRegexes(wordMap) {
     // Skip malformed rules where the value is not an object (e.g., corrupted
     // storage where a key maps to a string, number, or array instead of the
     // expected {replacement, caseSensitive, enabled} structure).
-    if (typeof data !== 'object' || Array.isArray(data)) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
       Logger.warn('Skipping malformed rule (expected object, got ' + typeof data + '):', word);
       continue;
     }
@@ -319,9 +319,10 @@ function updateRegexes(wordMap) {
  * - TEXTAREA/INPUT: Corrupt text the user is actively typing
  */
 // SVG is included because replacing text inside SVG elements could break
-// rendered charts, diagrams, and other vector graphics. SVG elements use
-// lowercase tagName in the DOM when inside HTML documents, so we include both
-// the uppercase and lowercase forms for safety.
+// rendered charts, diagrams, and other vector graphics. In HTML documents,
+// the HTML parser normalizes tagName to uppercase ('SVG'), but in XHTML or
+// when elements are created via createElementNS, tagName may be lowercase
+// ('svg'). We include both forms for safety.
 const IGNORED_TAGS = new Set([
     'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SVG', 'svg'
 ]);
@@ -366,6 +367,12 @@ function shouldProcessNode(node) {
 
   // Skip nodes inside tags we should never modify (SCRIPT, STYLE, etc.)
   if (IGNORED_TAGS.has(node.parentNode.tagName)) return false;
+
+  // Check for SVG ancestors beyond the immediate parent. SVG child elements
+  // like <g>, <text>, and <tspan> are not in IGNORED_TAGS individually, so we
+  // walk up the ancestor chain to find if this node lives inside an SVG tree.
+  // Replacing text inside SVG could break rendered charts and diagrams.
+  if (node.parentElement && node.parentElement.closest('svg')) return false;
 
   // Skip nodes inside editable areas (contentEditable, rich text editors)
   if (isEditable(node.parentNode)) return false;
@@ -602,6 +609,7 @@ function processDocument() {
  * @param {Node} element - The DOM node to process (Element or Text node).
  */
 function processElement(element) {
+  if (!element || !element.nodeType) return;
   if (!extensionEnabled) return;
   if (!sensitiveRegex && !insensitiveRegex) return;
 
@@ -747,7 +755,8 @@ chrome.storage.sync.get(['wordMap', 'extensionEnabled'], (data) => {
     return;
   }
 
-  // Default to enabled if the setting hasn't been set yet (first install).
+  // Default to enabled if the setting hasn't been set yet (e.g., first install).
+  // Uses !== false so that undefined (missing key) also defaults to enabled.
   extensionEnabled = data.extensionEnabled !== false;
   Logger.debug('Settings loaded. Extension enabled:', extensionEnabled);
   Logger.debug('Number of rules loaded:', data.wordMap ? Object.keys(data.wordMap).length : 0);
@@ -770,7 +779,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // Guard against the extension context being invalidated (e.g., after an
   // extension update or uninstall while the page is still open). Accessing
   // chrome APIs in this state throws "Extension context invalidated."
-  if (chrome.runtime.id === undefined) return;
+  if (chrome.runtime.id === undefined) {
+    clearTimeout(reprocessTimeout);
+    reprocessTimeout = null;
+    return;
+  }
 
   if (area === 'sync') {
     // Track what actually changed so we only do the minimum work needed.
@@ -818,7 +831,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     // Check if the replacement rules themselves changed.
     if (changes.wordMap) {
       // Rebuild regex patterns from the new rules.
-      updateRegexes(changes.wordMap.newValue || {});
+      updateRegexes(changes.wordMap.newValue ?? {});
 
       // Only re-scan the page if the extension is currently enabled.
       // Re-scanning when disabled would be wasted work.
@@ -828,8 +841,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
 
     // Re-scan the document only if something meaningful changed.
-    // This prevents unnecessary work (e.g., toggling a single rule off
-    // doesn't require a full page re-scan).
+    // This avoids redundant work when the storage event fires but nothing
+    // that affects replacement behavior actually changed.
     if (needsReprocess && extensionEnabled) {
       // Debounce re-scans to avoid jank on large pages when the user is
       // rapidly editing rules in the management page. Each keystroke that

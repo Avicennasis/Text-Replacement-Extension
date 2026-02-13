@@ -659,7 +659,14 @@ function updateReplacement(originalText, field, newValue) {
         }
 
         const wordMap = safeWordMap(data.wordMap);
-        if (!wordMap[originalText]) return; // Rule was deleted in another tab
+        // If the rule no longer exists (e.g., removed from another tab while
+        // this tab was open), notify the user and refresh the UI instead of
+        // silently ignoring the edit.
+        if (!wordMap[originalText]) {
+            showStatus('Rule was modified or removed in another tab. Refreshing...', true);
+            loadWordMap();
+            return;
+        }
 
         const originalData = wordMap[originalText];
 
@@ -694,6 +701,8 @@ function updateReplacement(originalText, field, newValue) {
                 const newLower = newValue.toLowerCase();
                 for (const [key, ruleData] of Object.entries(wordMap)) {
                     if (key === originalText) continue;
+                    // Skip corrupted entries where the rule value is null or not an object
+                    if (!ruleData || typeof ruleData !== 'object') continue;
                     if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
                         loadWordMap();
                         showStatus(`A case-insensitive rule for "${key}" already exists and would collide.`, true);
@@ -708,6 +717,8 @@ function updateReplacement(originalText, field, newValue) {
                 const newLower = newValue.toLowerCase();
                 for (const [key, ruleData] of Object.entries(wordMap)) {
                     if (key === originalText) continue;
+                    // Skip corrupted entries where the rule value is null or not an object
+                    if (!ruleData || typeof ruleData !== 'object') continue;
                     if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
                         loadWordMap();
                         showStatus(`Warning: a case-insensitive rule for "${key}" already exists and may overlap.`, true);
@@ -848,7 +859,7 @@ function addReplacement() {
 
         // Prevent duplicate rules (exact match)
         if (wordMap[newOriginal]) {
-            showStatus('Rule already exists for this word.', true);
+            showStatus('A rule with this original text already exists.', true);
             return;
         }
 
@@ -862,6 +873,8 @@ function addReplacement() {
         if (!newCaseSensitive) {
             const newLower = newOriginal.toLowerCase();
             for (const [key, ruleData] of Object.entries(wordMap)) {
+                // Skip corrupted entries where the rule value is null or not an object
+                if (!ruleData || typeof ruleData !== 'object') continue;
                 if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
                     showStatus(`A case-insensitive rule for "${key}" already exists. Change it to case-sensitive or use the existing rule.`, true);
                     return;
@@ -876,6 +889,8 @@ function addReplacement() {
         if (newCaseSensitive) {
             const newLower = newOriginal.toLowerCase();
             for (const [key, ruleData] of Object.entries(wordMap)) {
+                // Skip corrupted entries where the rule value is null or not an object
+                if (!ruleData || typeof ruleData !== 'object') continue;
                 if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
                     showStatus(`Warning: a case-insensitive rule for "${key}" already exists and may overlap.`, true);
                     return;
@@ -918,8 +933,12 @@ function addReplacement() {
 
                 // Scroll the new row into view so the user can see it was added,
                 // especially when the table is long enough to require scrolling.
+                // Only scroll if the row is actually visible — if a search filter
+                // is active and hides the new row, scrolling would jump to nothing.
                 const newRow = document.querySelector('#replacementList tr:last-child');
-                if (newRow) newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                if (newRow && !newRow.classList.contains('hidden-by-filter')) {
+                    newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
 
                 // If a search filter is active, re-apply it so the new row
                 // is hidden if it doesn't match the current search query.

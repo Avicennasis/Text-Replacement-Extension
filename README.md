@@ -158,20 +158,23 @@ dist/firefox/    → Load in Firefox
 ### Repository Structure
 ```
 Text-Replacement-Extension/
-├── src/                          # Shared source code (identical for all browsers)
-│   ├── background.js             # Toolbar icon click handler
-│   ├── content.js                # Text replacement engine (runs on every page)
-│   ├── manage.js                 # Management page UI logic
-│   ├── manage.html               # Management page structure
-│   ├── manage.css                # Management page styles (external for CSP)
-│   └── images/                   # Extension icons
+├── src/                              # Shared source code (identical for all browsers)
+│   ├── background.js                 # Toolbar icon click handler
+│   ├── content.js                    # Text replacement engine (runs on every page)
+│   ├── manage.js                     # Management page UI logic
+│   ├── manage.html                   # Management page structure
+│   ├── manage.css                    # Management page styles (external for CSP)
+│   └── images/                       # Extension icons
 ├── manifests/
-│   ├── chromium/manifest.json    # MV3 manifest for Chrome/Edge/Opera
-│   └── firefox/manifest.json     # MV3 manifest for Firefox (with gecko settings)
-├── .github/workflows/ci.yml     # Automated build & security checks
-├── build.sh                      # Build script → dist/chromium/ and dist/firefox/
-├── tests/                        # Benchmarks and test utilities
-├── LICENSE                       # MIT License
+│   ├── chromium/manifest.json        # MV3 manifest for Chrome/Edge/Opera
+│   └── firefox/manifest.json         # MV3 manifest for Firefox (with gecko settings)
+├── tests/                            # Benchmarks and test utilities
+│   ├── benchmark.js                  # Replacement engine correctness & performance tests
+│   ├── benchmark_performance.py      # Playwright-based UI performance benchmark
+│   └── mock_chrome.js                # Mock browser APIs for Playwright tests
+├── .github/workflows/ci.yml         # Automated build & security checks
+├── build.sh                          # Build script → dist/chromium/ and dist/firefox/
+├── LICENSE                           # MIT License
 └── README.md
 ```
 

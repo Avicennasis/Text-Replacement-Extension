@@ -195,9 +195,9 @@ const oversizedNode = {
 const originalValue = oversizedNode.nodeValue;
 sandbox.processNode(oversizedNode);
 if (oversizedNode.nodeValue === originalValue) {
-    console.log('  [PASS] Oversized text node correctly skipped');
+    console.log('  [PASS]: Oversized text node correctly skipped');
 } else {
-    console.log('  [FAIL] Oversized text node should have been skipped but was modified');
+    console.log('  [FAIL]: Oversized text node should have been skipped but was modified');
     allPassed = false;
 }
 

@@ -1,6 +1,7 @@
 window.chrome = {
     runtime: {
         lastError: null,
+        // NOTE: This version must be kept in sync with manifests/chromium/manifest.json
         getManifest: () => ({ version: '2.1', manifest_version: 3 }),
     },
     storage: {
