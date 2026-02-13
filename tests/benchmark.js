@@ -81,8 +81,11 @@ if (typeof sandbox.updateRegexes !== 'function') {
 
 // 1. Setup Rules
 const wordMap = {};
-// specific replacements to force heavy regex usage
-for (let i = 0; i < 1000; i++) {
+// Bulk replacements to force heavy regex usage. We use 240 rules here so that
+// the total (240 + ~11 verification rules below) stays under the MAX_RULES
+// limit of 255 enforced by content.js. The exact count doesn't matter — what
+// matters is having enough alternations to stress-test the regex engine.
+for (let i = 0; i < 240; i++) {
   wordMap[`word${i}`] = { replacement: `REPLACED${i}`, caseSensitive: false, enabled: true };
 }
 // Add some common words to trigger frequent matches
@@ -115,7 +118,7 @@ sandbox.updateRegexes(wordMap);
 // 2. Create Heavy Text Node
 // We want enough text to make the benchmark meaningful (e.g., taking > 10ms)
 let text = "";
-const basePattern = "The quick brown fox jumps over the lazy dog. word50 word999 word0 is and the. $5.00 C++ (test) ";
+const basePattern = "The quick brown fox jumps over the lazy dog. word50 word239 word0 is and the. $5.00 C++ (test) ";
 for (let i = 0; i < 10000; i++) {
   text += basePattern;
 }
