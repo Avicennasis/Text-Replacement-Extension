@@ -126,7 +126,7 @@ sandbox.updateRegexes(wordMap);
 // 2. Create Heavy Text Node
 // We want enough text to make the benchmark meaningful (e.g., taking > 10ms)
 let text = "";
-const basePattern = "The quick brown fox jumps over the lazy dog. word50 word239 word0 is and the. $5.00 C++ (test) ";
+const basePattern = "The Quick brown Fox jumps over the lazy dog. word50 word239 word0 is and the. $5.00 C++ (test) ";
 for (let i = 0; i < 10000; i++) {
   text += basePattern;
 }
