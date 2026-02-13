@@ -51,13 +51,21 @@ sandbox.window = sandbox;
 // Read content.js
 let code = fs.readFileSync(path.join(__dirname, '..', 'src', 'content.js'), 'utf8');
 
-// Increase timeout for benchmark purposes
-const patchedCode = code.replace(/const REGEX_TIMEOUT_MS = \d+;/, 'const REGEX_TIMEOUT_MS = 10000;');
-if (patchedCode === code) {
+// Increase timeout and text node size limit for benchmark purposes.
+// The benchmark uses large text nodes to produce meaningful timing data,
+// so the production safety limits need to be raised for testing.
+code = code.replace(/const REGEX_TIMEOUT_MS = \d+;/, 'const REGEX_TIMEOUT_MS = 10000;');
+code = code.replace(/const MAX_TEXT_NODE_LENGTH = \d+;/, 'const MAX_TEXT_NODE_LENGTH = 2000000;');
+
+// Verify both patches applied successfully
+if (code.indexOf('const REGEX_TIMEOUT_MS = 10000;') === -1) {
     console.error('FATAL: Failed to patch REGEX_TIMEOUT_MS. The constant may have been renamed or moved.');
     process.exit(1);
 }
-code = patchedCode;
+if (code.indexOf('const MAX_TEXT_NODE_LENGTH = 2000000;') === -1) {
+    console.error('FATAL: Failed to patch MAX_TEXT_NODE_LENGTH. The constant may have been renamed or moved.');
+    process.exit(1);
+}
 
 // Run content.js in the sandbox
 vm.createContext(sandbox);
@@ -188,11 +196,11 @@ if (result.includes('SHOULD_NOT_APPEAR')) {
     console.log('  [PASS]: Disabled rule correctly skipped');
 }
 
-// Verify the MAX_TEXT_NODE_LENGTH guard: nodes exceeding 50,000 characters
-// should be skipped entirely (no replacements applied).
+// Verify the MAX_TEXT_NODE_LENGTH guard: nodes exceeding the patched limit
+// (2,000,000 chars in this benchmark) should be skipped entirely.
 const oversizedNode = {
     nodeType: 3,
-    nodeValue: 'the '.repeat(15000), // 60,000 chars, exceeds 50,000 limit
+    nodeValue: 'the '.repeat(600000), // 2,400,000 chars, exceeds patched 2,000,000 limit
     parentNode: { tagName: 'DIV', isContentEditable: false }
 };
 const originalValue = oversizedNode.nodeValue;
