@@ -402,7 +402,7 @@ input[type="text"]:focus {
    ========================================================================= */
 .table-container {
     border-radius: 16px;
-    overflow: hidden;
+    overflow-x: auto;
     border: 1px solid var(--glass-border);
 }
 
@@ -577,4 +577,19 @@ th:nth-child(4) {
 
 th:nth-child(5) {
     width: 20%;
+}
+
+/* -----------------------------------------------------------------------
+   REDUCED MOTION
+   Respects the user's operating system "Reduce motion" setting.
+   People with vestibular disorders or motion sensitivity can enable this
+   in their OS accessibility settings to disable animations and transitions.
+   WCAG 2.3.3 — Animation from Interactions.
+   ----------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }

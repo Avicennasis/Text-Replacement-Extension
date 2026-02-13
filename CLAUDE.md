@@ -51,6 +51,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR and checks:
 | `MAX_RULES`          | 255    | manage.js   |
 | `MAX_PATTERN_LENGTH` | 255    | manage.js   |
 | `REGEX_TIMEOUT_MS`   | 100ms  | content.js  |
+| `MAX_TEXT_NODE_LENGTH` | 50000  | content.js  |
 | `MAX_IMPORT_FILE_SIZE` | 1 MB | manage.js   |
 | Sync storage per-item | 8 KB  | Browser API |
 | Sync storage total   | 100 KB | Browser API |

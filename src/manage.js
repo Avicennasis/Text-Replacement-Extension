@@ -51,7 +51,7 @@ const MAX_PATTERN_LENGTH = 255; // Maximum characters per original or replacemen
 // or "prototype" could interfere with object property lookups in some
 // JavaScript engines. While modern engines protect against __proto__
 // assignment on plain objects, rejecting these keys is defense-in-depth.
-const RESERVED_KEYS = ['__proto__', 'constructor', 'prototype'];
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 // Valid field names for updateReplacement(). Used to prevent unknown
 // properties from being silently persisted to storage (which would eat
@@ -135,8 +135,12 @@ let statusTimeout = null;
  * @returns {number} - Estimated size in bytes.
  */
 function estimateStorageSize(wordMap) {
-    const jsonString = JSON.stringify({ wordMap });
-    return new Blob([jsonString]).size;
+    // Chrome stores each key's value independently. The storage quota applies
+    // to the JSON-serialized value plus the key name. We measure just the value
+    // and add a small overhead for the "wordMap" key name itself.
+    const valueSize = new Blob([JSON.stringify(wordMap)]).size;
+    const keyOverhead = 9; // length of "wordMap" plus JSON key formatting
+    return valueSize + keyOverhead;
 }
 
 /**
@@ -222,7 +226,7 @@ function validateImportedRules(rules) {
             return 'Invalid rule: empty original text is not allowed. Every rule must specify the text to find.';
         }
 
-        if (RESERVED_KEYS.includes(key)) {
+        if (RESERVED_KEYS.has(key)) {
             return 'Invalid rule: "' + key + '" is a reserved JavaScript keyword and cannot be used as rule text.';
         }
 
@@ -426,6 +430,9 @@ function loadWordMap() {
         if (Object.keys(wordMap).length === 0) {
             const emptyRow = document.createElement('tr');
             const emptyCell = document.createElement('td');
+            // colspan must match the number of columns in the table header
+            // (Original String, Replacement String, Match Case, Enabled, Actions = 5).
+            // Update this value if columns are added or removed from the <thead>.
             emptyCell.setAttribute('colspan', '5');
             emptyCell.textContent = 'No replacement rules yet. Add one above to get started!';
             emptyCell.className = 'text-center empty-state';
@@ -663,6 +670,14 @@ function updateReplacement(originalText, field, newValue) {
                 return;
             }
 
+            // Reject reserved JavaScript property names that could interfere
+            // with object property lookups (defense-in-depth against prototype pollution).
+            if (RESERVED_KEYS.has(newValue)) {
+                showStatus(`"${newValue}" is a reserved word and cannot be used as rule text.`, true);
+                loadWordMap();
+                return;
+            }
+
             // Prevent overwriting a different existing rule
             if (wordMap[newValue] && newValue !== originalText) {
                 loadWordMap();
@@ -670,9 +685,27 @@ function updateReplacement(originalText, field, newValue) {
                 return;
             }
 
-            // EDGE CASE: Prevent renames that only differ in case (e.g., "cat" → "Cat").
-            // With case-insensitive matching, "cat" and "Cat" are functionally identical,
+            // Prevent case-insensitive collisions when renaming a case-insensitive rule.
+            // For example, renaming "cat" to "Cat" when another case-insensitive "CAT" rule
+            // already exists would create two rules that silently collide in the replacement
+            // engine — only one would actually work.
+            if (!originalData.caseSensitive) {
+                const newLower = newValue.toLowerCase();
+                for (const [key, ruleData] of Object.entries(wordMap)) {
+                    if (key === originalText) continue;
+                    if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
+                        loadWordMap();
+                        showStatus(`A case-insensitive rule for "${key}" already exists and would collide.`, true);
+                        return;
+                    }
+                }
+            }
+
+            // Handle renames that only differ in case (e.g., "cat" to "Cat").
+            // For case-INSENSITIVE rules, "cat" and "Cat" match identically,
             // so a case-only rename would be confusing and appear to do nothing.
+            // For case-SENSITIVE rules, "cat" and "Cat" are genuinely different
+            // patterns, so the rename is meaningful and should be allowed.
             if (newValue.toLowerCase() !== originalText.toLowerCase()) {
                 // Real rename (different word entirely) — proceed normally
                 delete wordMap[originalText];
@@ -680,11 +713,17 @@ function updateReplacement(originalText, field, newValue) {
             } else if (newValue === originalText) {
                 // Exact same value — user likely just unfocused the field, no change needed
                 return;
-            } else {
-                // Case-only change detected (e.g., "cat" → "Cat" or "cat" → "CAT")
+            } else if (!originalData.caseSensitive) {
+                // Case-only change on a case-insensitive rule — block it because
+                // "cat" and "Cat" are functionally identical when case is ignored.
                 loadWordMap();
                 showStatus('Cannot rename to only differ in case (e.g., "cat" to "Cat"). Create a new rule instead.', true);
                 return;
+            } else {
+                // Case-only change on a case-sensitive rule — this is a meaningful
+                // rename (e.g., "cat" matches different text than "Cat"), so allow it.
+                delete wordMap[originalText];
+                wordMap[newValue] = originalData;
             }
         } else {
             // Normal field update (replacement text, caseSensitive, enabled)
@@ -760,7 +799,7 @@ function addReplacement() {
         return;
     }
 
-    if (RESERVED_KEYS.includes(newOriginal)) {
+    if (RESERVED_KEYS.has(newOriginal)) {
         showStatus(`"${newOriginal}" is a reserved word and cannot be used as rule text.`, true);
         return;
     }
@@ -815,6 +854,20 @@ function addReplacement() {
             }
         }
 
+        // Symmetric check: when adding a case-SENSITIVE rule, warn if an existing
+        // case-INSENSITIVE rule covers the same text. The insensitive rule already
+        // matches all case variants, so the new sensitive rule may overlap and
+        // produce unexpected results.
+        if (newCaseSensitive) {
+            const newLower = newOriginal.toLowerCase();
+            for (const [key, ruleData] of Object.entries(wordMap)) {
+                if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
+                    showStatus(`Warning: a case-insensitive rule for "${key}" already exists and may overlap.`, true);
+                    return;
+                }
+            }
+        }
+
         // Add the new rule
         wordMap[newOriginal] = {
             replacement: newReplacement,
@@ -836,6 +889,14 @@ function addReplacement() {
                 showStatus('Failed to add replacement. Storage full?', true);
             } else {
                 Logger.debug('New replacement added:', newOriginal, '\u2192', newReplacement);
+
+                // Remove the "No replacement rules yet" message if present,
+                // so the first real rule row appears cleanly.
+                const emptyStateRow = document.querySelector('#replacementList .empty-state');
+                if (emptyStateRow) {
+                    const row = emptyStateRow.closest('tr');
+                    if (row) row.remove();
+                }
 
                 // Update UI instantly without a full table reload
                 addRowToTable(newOriginal, newReplacement, newCaseSensitive, true);
@@ -882,6 +943,15 @@ function removeReplacement(originalText) {
         }
 
         const wordMap = safeWordMap(data.wordMap);
+
+        // If the rule was already removed (e.g., by another tab), skip the
+        // delete and let the user know it's gone.
+        if (!wordMap[originalText]) {
+            showStatus('Rule was already removed.', false);
+            loadWordMap();
+            return;
+        }
+
         delete wordMap[originalText];
 
         chrome.storage.sync.set({ wordMap }, () => {
@@ -937,6 +1007,7 @@ function showStatus(message, isError = false) {
         // Auto-clear after the configured duration
         statusTimeout = setTimeout(() => {
             statusEl.textContent = '';
+            statusEl.classList.remove('status-success', 'status-error');
             statusTimeout = null;
         }, STATUS_DISPLAY_DURATION_MS);
     }
@@ -972,12 +1043,25 @@ function exportRules() {
             return;
         }
 
+        // Read version from the manifest instead of hardcoding, so the export
+        // metadata stays in sync when the manifest version is bumped.
+        // Wrapped in try/catch in case the manifest is unavailable (e.g., during
+        // testing or if the browser API is in an unexpected state).
+        let version = 'unknown';
+        try {
+            version = chrome.runtime.getManifest().version;
+        } catch (e) {
+            Logger.warn('Could not read manifest version for export:', e);
+        }
+
+        // Capture the current time once so the metadata timestamp and the
+        // filename date are guaranteed to match.
+        const now = new Date();
+
         // Create export object with metadata for version compatibility
         const exportData = {
-            // Read version from the manifest instead of hardcoding, so the export
-            // metadata stays in sync when the manifest version is bumped.
-            version: chrome.runtime.getManifest().version,
-            exportedAt: new Date().toISOString(),
+            version,
+            exportedAt: now.toISOString(),
             rulesCount: ruleCount,
             rules: wordMap
         };
@@ -992,7 +1076,7 @@ function exportRules() {
         a.href = url;
 
         // Generate a descriptive filename with the current date
-        const dateStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
         a.download = `text-replacement-rules-${dateStr}.json`;
 
         // Trigger the download programmatically
@@ -1086,15 +1170,18 @@ function importRules(file) {
                 return;
             }
 
-            // Ask user how they want to handle the import:
-            // - REPLACE: Discard all current rules and use only the imported ones.
-            // - MERGE: Keep existing rules and add the imported ones on top.
-            //   If an imported rule has the same original text as an existing rule,
-            //   the imported version wins (overwrites the existing one).
+            // Two-step confirmation so the user can abort entirely.
+            // Step 1: Ask if they want to proceed with the import at all.
+            // Step 2: Ask whether to replace or merge with existing rules.
+            // Without the first step, there was no way to cancel — both OK and
+            // Cancel in the old single dialog would proceed with an import.
+            const wantImport = confirm(`Found ${importCount} rule(s) in the file. Do you want to import them?`);
+            if (!wantImport) return;
+
             const shouldReplace = confirm(
-                `Found ${importCount} rules in the file.\n\n` +
-                `Click OK to REPLACE all existing rules.\n` +
-                `Click Cancel to MERGE with existing rules.`
+                'How should the imported rules be applied?\n\n' +
+                'OK = REPLACE all existing rules with the imported ones.\n' +
+                'Cancel = MERGE imported rules into your existing rules.'
             );
 
             // Read current rules from storage for merge mode
@@ -1171,9 +1258,19 @@ function importRules(file) {
  */
 function filterRules(query) {
     const searchQuery = query.toLowerCase().trim();
-    const rows = document.querySelectorAll('#replacementList tr');
-    let visibleCount = 0;
+
+    // Filter to only rows that contain rule data (at least two text inputs).
+    // This excludes the "No replacement rules yet" empty-state row, which has
+    // no inputs and should never be counted or hidden by the search filter.
+    const allRows = document.querySelectorAll('#replacementList tr');
+    const rows = Array.from(allRows).filter(row => row.querySelectorAll('input[type="text"]').length >= 2);
     const totalCount = rows.length;
+    if (totalCount === 0) {
+        document.getElementById('searchResults').textContent = '';
+        return;
+    }
+
+    let visibleCount = 0;
 
     // If search is empty, show all rows and clear the results counter
     if (!searchQuery) {
@@ -1187,7 +1284,6 @@ function filterRules(query) {
     // Filter rows: show only those where original or replacement text matches
     rows.forEach(row => {
         const inputs = row.querySelectorAll('input[type="text"]');
-        if (inputs.length < 2) return; // Safety check
 
         const originalText = inputs[0].value.toLowerCase();
         const replacementText = inputs[1].value.toLowerCase();

@@ -110,6 +110,13 @@ jobs:
                   if not os.path.isfile(f"{d}/{path}"):
                       errors.append(f"{target}: missing icon {path}")
 
+              # Action icons (toolbar button)
+              action = m.get("action", {})
+              for size, icon_path in action.get("default_icon", {}).items():
+                  full_path = os.path.join(d, icon_path)
+                  if not os.path.isfile(full_path):
+                      errors.append(f"{target}: action.default_icon references missing file: {icon_path}")
+
               print(f"  {target}: all referenced files exist.")
 
           if errors:
@@ -131,8 +138,10 @@ jobs:
           #   1. Track /* ... */ block comments across multiple lines
           #   2. Strip // single-line comments from JS
           #   3. Strip <!-- ... --> HTML comments (single-line)
-          #   4. Strip remaining single-line /* ... */ fragments
-          #   5. Search the remaining code for http:// or https:// URLs
+          #   4. Search the remaining code for http:// or https:// URLs
+          # Step 1 handles ALL /* ... */ comments (both single-line and multi-line)
+          # via the while-loop below, so the single-line patterns only need to
+          # cover // and <!-- --> styles.
           # This avoids false positives from URLs in documentation comments
           # while catching any URL that would actually execute at runtime.
 
@@ -143,7 +152,6 @@ jobs:
               # Without the lookbehind, "https://evil.com" would have "//evil.com"
               # stripped as a "comment", hiding the URL from the scanner entirely.
               re.compile(r'(?<!:)//.*$'),
-              re.compile(r'/\*.*?\*/'),        # JS/CSS block comments (single-line)
               re.compile(r'<!--.*?-->'),       # HTML comments (single-line)
           ]
 

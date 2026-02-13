@@ -150,7 +150,7 @@ console.log(`Average time per run: ${avgTime.toFixed(4)} ms`);
 // case-sensitive and case-insensitive paths.
 const result = textNode.nodeValue;
 const checks = [
-    { search: 'da quick', label: "'the' → 'da' (case-insensitive)" },
+    { search: 'da lazy', label: "'the' → 'da' (case-insensitive)" },
     { search: 'DA-CASE', label: "'The' → 'DA-CASE' (case-sensitive)" },
     { search: 'SLOW-CASE', label: "'Quick' → 'SLOW-CASE' (case-sensitive)" },
 ];

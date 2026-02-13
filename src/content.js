@@ -227,6 +227,18 @@ let matchCounter = 0;            // Counts matches to throttle performance.now()
  *   { replacement: string, caseSensitive: boolean, enabled: boolean }
  */
 function updateRegexes(wordMap) {
+  // Guard against corrupted storage: wordMap must be a plain object.
+  // This mirrors the safeWordMap() check in manage.js but is duplicated here
+  // because content scripts run in an isolated context (see Logger note above).
+  if (!wordMap || typeof wordMap !== 'object' || Array.isArray(wordMap)) {
+    Logger.warn('Received invalid wordMap (expected object, got ' + typeof wordMap + ') — clearing all rules.');
+    wordMapCache = Object.create(null);
+    wordMapCacheLower = Object.create(null);
+    sensitiveRegex = null;
+    insensitiveRegex = null;
+    return;
+  }
+
   const sensitiveWords = [];
   const insensitiveWords = [];
   // Use Object.create(null) to prevent prototype pollution — see explanation
@@ -238,6 +250,15 @@ function updateRegexes(wordMap) {
     // Only include rules that are explicitly enabled.
     // Rules with enabled === undefined are treated as enabled (backwards compat).
     if (data.enabled !== false) {
+      // Skip JavaScript reserved property names that could appear in storage
+      // due to manual edits or corrupted imports. The Object.create(null) caches
+      // protect against prototype pollution, but these keys would still produce
+      // nonsensical regex patterns.
+      if (word === '__proto__' || word === 'constructor' || word === 'prototype') {
+        Logger.warn('Skipping reserved key in wordMap:', word);
+        continue;
+      }
+
       activeMap[word] = data;
 
       // Build a lowercase lookup map for case-insensitive rules.
@@ -364,14 +385,14 @@ const replaceCallback = (match) => {
   // manual edits, old data format), we fall back to the original matched text
   // instead of replacing it with the literal string "undefined". We use ??
   // instead of || so that empty string "" (intentional text deletion) still works.
-  if (wordMapCache[match]) return wordMapCache[match].replacement ?? match;
+  if (match in wordMapCache) return wordMapCache[match].replacement ?? match;
 
   // Step 2: Try case-insensitive match using our pre-built lowercase map.
   // This is also O(1) — we lowercase the match and look it up directly.
   // OLD APPROACH: Looped through ALL keys comparing case-insensitively — O(n)!
   // NEW APPROACH: Direct hash lookup — O(1), instant regardless of rule count.
   const lowerMatch = match.toLowerCase();
-  if (wordMapCacheLower[lowerMatch]) {
+  if (lowerMatch in wordMapCacheLower) {
     return wordMapCacheLower[lowerMatch].replacement ?? match;
   }
 
@@ -401,6 +422,10 @@ function processNode(node) {
   // is detached, inside a tag we should never touch (scripts, textareas, etc.),
   // or inside an editable area. See shouldProcessNode() for full details.
   if (!extensionEnabled) return;
+  // Note: callers (processDocument, processElement) already filter via
+  // shouldProcessNode() in their TreeWalker accept functions. We re-check
+  // here as defense-in-depth in case processNode is ever called from a
+  // new code path that doesn't use a TreeWalker.
   if (!shouldProcessNode(node)) return;
 
   let text = node.nodeValue;
@@ -412,9 +437,11 @@ function processNode(node) {
 
   let changed = false;
 
-  // Start the timeout timer for this node.
-  // If regex processing takes longer than REGEX_TIMEOUT_MS, replaceCallback
-  // will throw an error that we catch below.
+  // Start the timeout timer for this node. The REGEX_TIMEOUT_MS budget is
+  // shared across BOTH regex passes (case-sensitive first, then case-insensitive).
+  // If pass 1 is slow, pass 2 gets less time. This is intentional: the goal is
+  // to protect the browser from spending too long on any single text node,
+  // regardless of how many passes are needed.
   nodeProcessingStartTime = performance.now();
   matchCounter = 0;
 
@@ -470,6 +497,14 @@ function processNode(node) {
     // Writing to node.nodeValue triggers a browser reflow, so we avoid it
     // when unnecessary to keep the page responsive.
     if (changed) {
+      // Guard against replacements that inflate the text to an extreme size.
+      // For example, replacing a single character with a 255-character string
+      // could multiply the node's length far beyond what's reasonable.
+      if (text.length > MAX_TEXT_NODE_LENGTH * 2) {
+        Logger.warn('Replacement inflated text node to', text.length, 'chars (limit:', MAX_TEXT_NODE_LENGTH * 2, ') — skipping write-back to protect performance.');
+        return;
+      }
+
       node.nodeValue = text;
     }
   } catch (error) {

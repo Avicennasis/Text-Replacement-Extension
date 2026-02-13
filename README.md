@@ -139,7 +139,7 @@ dist/firefox/    → Load in Firefox
 *   **Granular Updates**: Only rebuilds/rescans when necessary (not on every settings change).
 
 ### Security Features
-*   **Strict CSP**: `script-src 'self'; object-src 'self'; style-src 'self'` — no `unsafe-inline`.
+*   **Strict CSP**: `script-src 'self'; object-src 'none'; style-src 'self'` — no `unsafe-inline`.
 *   **No External Resources**: All fonts, scripts, and styles bundled locally. Zero network requests.
 *   **Input Validation**: Validates pattern lengths, rule counts, storage quotas, and import file structure.
 *   **Import Sanitization**: Imported rules are validated for correct types and safe lengths before saving.
