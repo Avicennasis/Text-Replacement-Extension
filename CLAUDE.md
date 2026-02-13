@@ -12,6 +12,10 @@
 
 # Run replacement engine benchmarks
 node tests/benchmark.js
+
+# Run Playwright-based UI benchmark (optional, requires Python + Playwright)
+pip install playwright && python -m playwright install chromium
+python tests/benchmark_performance.py
 ```
 
 Output lands in `dist/chromium/` and `dist/firefox/`. Load the appropriate directory as an unpacked extension in your browser.

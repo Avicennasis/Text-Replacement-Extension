@@ -52,6 +52,13 @@ echo "Building Text Replacement Extension..."
 echo ""
 
 for target in "${TARGETS[@]}"; do
+    # Validate target name to prevent path traversal (e.g., "../src" would
+    # resolve to a real directory but could cause rm -rf to delete source files).
+    if [[ ! "$target" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "  ERROR: Invalid target name '$target'. Only letters, numbers, hyphens, and underscores are allowed."
+        exit 1
+    fi
+
     # Validate target name
     if [ ! -d "$SCRIPT_DIR/manifests/$target" ]; then
         echo "  ERROR: Unknown target '$target'. Expected 'chromium' or 'firefox'."

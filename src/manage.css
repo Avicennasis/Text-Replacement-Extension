@@ -31,6 +31,16 @@
     --text-muted: #94a3b8;
 }
 
+/* -----------------------------------------------------------------------
+   BOX MODEL RESET
+   Use border-box globally so padding and borders are included in element
+   widths. This prevents layout surprises when adding padding to elements
+   that also have percentage or fixed widths.
+   ----------------------------------------------------------------------- */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
 /* =========================================================================
    BASE STYLES
    ========================================================================= */
@@ -45,7 +55,6 @@ body {
         radial-gradient(circle at 10% 20%, rgba(79, 172, 254, 0.15) 0%, transparent 40%),
         radial-gradient(circle at 90% 80%, rgba(255, 0, 85, 0.1) 0%, transparent 40%);
     background-attachment: fixed;
-    box-sizing: border-box;
     display: flex;
     justify-content: center;
 }
@@ -90,7 +99,11 @@ h1 {
     font-size: 2.5rem;
     font-weight: 700;
     background: linear-gradient(to right, var(--primary), var(--secondary));
+    /* Standard property listed first for future-proofing; the -webkit- prefix
+       below serves as a fallback for older browsers that need it. */
+    background-clip: text;
     -webkit-background-clip: text;
+    color: transparent;
     -webkit-text-fill-color: transparent;
     margin: 0;
     letter-spacing: -1px;
@@ -134,7 +147,7 @@ p.subtitle {
     border: 1px solid var(--glass-border);
 }
 
-.slider:before {
+.slider::before {
     position: absolute;
     content: "";
     height: 18px;
@@ -151,7 +164,7 @@ input:checked + .slider {
     border-color: var(--secondary);
 }
 
-input:checked + .slider:before {
+input:checked + .slider::before {
     transform: translateX(20px);
     background-color: var(--primary);
     box-shadow: 0 0 10px var(--primary);
@@ -217,7 +230,9 @@ input:focus-visible + .slider {
     font-weight: 500;
     font-size: 0.95rem;
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* List properties explicitly instead of "all" so that focus indicators
+       appear instantly without a slow transition (WCAG 2.4.7). */
+    transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -252,7 +267,9 @@ input:focus-visible + .slider {
     display: flex;
     gap: 16px;
     align-items: flex-end;
-    transition: all 0.3s ease;
+    /* List properties explicitly instead of "all" so that focus indicators
+       appear instantly without a slow transition (WCAG 2.4.7). */
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 .add-section:focus-within {
@@ -263,6 +280,14 @@ input:focus-visible + .slider {
 /* Responsive: stack the form vertically on narrow viewports so inputs
    don't get squeezed to unusable widths. */
 @media (max-width: 768px) {
+    body {
+        padding: 16px;
+    }
+
+    .container {
+        padding: 20px;
+    }
+
     .add-section {
         flex-wrap: wrap;
     }
@@ -312,7 +337,6 @@ input[type="text"] {
     font-size: 1rem;
     transition: all 0.2s ease;
     width: 100%;
-    box-sizing: border-box;
 }
 
 input[type="text"]:focus {
@@ -322,6 +346,11 @@ input[type="text"]:focus {
     border-color: var(--primary);
     background: rgba(0, 0, 0, 0.4);
     box-shadow: 0 0 0 4px rgba(0, 242, 254, 0.1);
+}
+
+input[type="text"]::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
 }
 
 .btn-add {
@@ -334,7 +363,9 @@ input[type="text"]:focus {
     font-weight: 600;
     font-size: 1rem;
     cursor: pointer;
-    transition: all 0.3s ease;
+    /* List properties explicitly instead of "all" so that focus indicators
+       appear instantly without a slow transition (WCAG 2.4.7). */
+    transition: background 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -464,7 +495,9 @@ td input[type="text"]:focus {
     padding: 8px 16px;
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.2s;
+    /* List properties explicitly instead of "all" so that focus indicators
+       appear instantly without a slow transition (WCAG 2.4.7). */
+    transition: background 0.2s ease, color 0.2s ease;
     font-size: 0.85rem;
 }
 

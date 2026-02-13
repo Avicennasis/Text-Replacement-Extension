@@ -139,7 +139,7 @@ function estimateStorageSize(wordMap) {
     // to the JSON-serialized value plus the key name. We measure just the value
     // and add a small overhead for the "wordMap" key name itself.
     const valueSize = new Blob([JSON.stringify(wordMap)]).size;
-    const keyOverhead = 9; // length of "wordMap" plus JSON key formatting
+    const keyOverhead = 9; // "wordMap" (7 chars) + 2 bytes for JSON quotes = 9 bytes
     return valueSize + keyOverhead;
 }
 
@@ -235,8 +235,8 @@ function validateImportedRules(rules) {
             return `Rule "${key.substring(0, 30)}..." exceeds the maximum pattern length of ${MAX_PATTERN_LENGTH} characters.`;
         }
 
-        // Validate that the rule value is an object (not a string, number, etc.)
-        if (!value || typeof value !== 'object') {
+        // Validate that the rule value is an object (not a string, number, array, etc.)
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
             return `Invalid rule format for "${key}". Expected an object with a "replacement" property.`;
         }
 
@@ -337,8 +337,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let searchTimeout;
     document.getElementById('searchBox').addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
+        const query = e.target.value;
         searchTimeout = setTimeout(() => {
-            filterRules(e.target.value);
+            filterRules(query);
         }, 150);
     });
 });
@@ -701,6 +702,20 @@ function updateReplacement(originalText, field, newValue) {
                 }
             }
 
+            // Symmetric check: when renaming a case-SENSITIVE rule, warn if an existing
+            // case-INSENSITIVE rule covers the same lowercased text.
+            if (originalData.caseSensitive) {
+                const newLower = newValue.toLowerCase();
+                for (const [key, ruleData] of Object.entries(wordMap)) {
+                    if (key === originalText) continue;
+                    if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
+                        loadWordMap();
+                        showStatus(`Warning: a case-insensitive rule for "${key}" already exists and may overlap.`, true);
+                        return;
+                    }
+                }
+            }
+
             // Handle renames that only differ in case (e.g., "cat" to "Cat").
             // For case-INSENSITIVE rules, "cat" and "Cat" match identically,
             // so a case-only rename would be confusing and appear to do nothing.
@@ -901,6 +916,11 @@ function addReplacement() {
                 // Update UI instantly without a full table reload
                 addRowToTable(newOriginal, newReplacement, newCaseSensitive, true);
 
+                // Scroll the new row into view so the user can see it was added,
+                // especially when the table is long enough to require scrolling.
+                const newRow = document.querySelector('#replacementList tr:last-child');
+                if (newRow) newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
                 // If a search filter is active, re-apply it so the new row
                 // is hidden if it doesn't match the current search query.
                 const searchBox = document.getElementById('searchBox');
@@ -930,7 +950,8 @@ function removeReplacement(originalText) {
     // Confirm before deleting to prevent accidental data loss.
     // Unlike adding or editing a rule (which can be undone by editing again),
     // deletion is permanent — the rule data is erased from storage.
-    if (!confirm(`Remove the rule for "${originalText}"?`)) {
+    const displayText = originalText.length > 50 ? originalText.substring(0, 50) + '...' : originalText;
+    if (!confirm(`Remove the rule for "${displayText}"?`)) {
         return;
     }
 
@@ -1080,12 +1101,15 @@ function exportRules() {
         a.download = `text-replacement-rules-${dateStr}.json`;
 
         // Trigger the download programmatically
-        document.body.appendChild(a);
-        a.click();
-
-        // Clean up the temporary link and revoke the blob URL to free memory
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        try {
+            document.body.appendChild(a);
+            a.click();
+        } finally {
+            // Always clean up the temporary link and Blob URL, even if the
+            // download trigger throws (e.g., DOM in an unexpected state).
+            if (a.parentNode) document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
 
         Logger.debug('Rules exported successfully:', ruleCount, 'rules');
         showStatus(`Exported ${ruleCount} rules successfully!`);
@@ -1203,6 +1227,12 @@ function importRules(file) {
                     Logger.debug('Import mode: MERGE');
                 }
 
+                // Remove reserved keys that could have entered storage through manual
+                // tampering, ensuring the merged result is clean before saving.
+                for (const key of RESERVED_KEYS) {
+                    delete finalRules[key];
+                }
+
                 // Check if result exceeds rule limit
                 const finalCount = Object.keys(finalRules).length;
                 if (finalCount > MAX_RULES) {
@@ -1274,15 +1304,15 @@ function filterRules(query) {
 
     // If search is empty, show all rows and clear the results counter
     if (!searchQuery) {
-        rows.forEach(row => {
+        for (const row of rows) {
             row.classList.remove('hidden-by-filter');
-        });
+        }
         document.getElementById('searchResults').textContent = '';
         return;
     }
 
     // Filter rows: show only those where original or replacement text matches
-    rows.forEach(row => {
+    for (const row of rows) {
         const inputs = row.querySelectorAll('input[type="text"]');
 
         const originalText = inputs[0].value.toLowerCase();
@@ -1296,7 +1326,7 @@ function filterRules(query) {
         } else {
             row.classList.add('hidden-by-filter');
         }
-    });
+    }
 
     // Update the search results counter.
     // Use CSS classes instead of inline styles (element.style.color) to stay

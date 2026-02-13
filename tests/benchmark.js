@@ -7,6 +7,8 @@ const { performance } = require('perf_hooks');
 const sandbox = {
   console: console,
   performance: performance,
+  setTimeout: setTimeout,
+  clearTimeout: clearTimeout,
   window: {},
   Set: Set, // Ensure Set is available if not automatic
   document: {
@@ -50,10 +52,10 @@ sandbox.window = sandbox;
 let code = fs.readFileSync(path.join(__dirname, '..', 'src', 'content.js'), 'utf8');
 
 // Increase timeout for benchmark purposes
-const patchedCode = code.replace('const REGEX_TIMEOUT_MS = 100;', 'const REGEX_TIMEOUT_MS = 10000;');
+const patchedCode = code.replace(/const REGEX_TIMEOUT_MS = \d+;/, 'const REGEX_TIMEOUT_MS = 10000;');
 if (patchedCode === code) {
-    console.error('WARNING: Failed to patch REGEX_TIMEOUT_MS. The constant may have been renamed or moved.');
-    console.error('         Benchmark may timeout on large inputs.');
+    console.error('FATAL: Failed to patch REGEX_TIMEOUT_MS. The constant may have been renamed or moved.');
+    process.exit(1);
 }
 code = patchedCode;
 
@@ -97,6 +99,13 @@ wordMap['The'] = { replacement: 'DA-CASE', caseSensitive: true, enabled: true };
 wordMap['Quick'] = { replacement: 'SLOW-CASE', caseSensitive: true, enabled: true };
 wordMap['Fox'] = { replacement: 'WOLF-CASE', caseSensitive: true, enabled: true };
 
+// Rules with regex special characters to verify escapeRegExp() works correctly.
+// If escapeRegExp is broken, these patterns would be interpreted as regex syntax
+// instead of literal text, causing incorrect matches or regex compilation errors.
+wordMap['$5.00'] = { replacement: 'five dollars', caseSensitive: false, enabled: true };
+wordMap['C++'] = { replacement: 'Cpp', caseSensitive: true, enabled: true };
+wordMap['(test)'] = { replacement: '[tested]', caseSensitive: false, enabled: true };
+
 // Add a disabled rule to verify it is excluded from processing.
 wordMap['DISABLED_WORD'] = { replacement: 'SHOULD_NOT_APPEAR', caseSensitive: false, enabled: false };
 
@@ -106,7 +115,7 @@ sandbox.updateRegexes(wordMap);
 // 2. Create Heavy Text Node
 // We want enough text to make the benchmark meaningful (e.g., taking > 10ms)
 let text = "";
-const basePattern = "The quick brown fox jumps over the lazy dog. word50 word999 word0 is and the. ";
+const basePattern = "The quick brown fox jumps over the lazy dog. word50 word999 word0 is and the. $5.00 C++ (test) ";
 for (let i = 0; i < 10000; i++) {
   text += basePattern;
 }
@@ -153,24 +162,43 @@ const checks = [
     { search: 'da lazy', label: "'the' → 'da' (case-insensitive)" },
     { search: 'DA-CASE', label: "'The' → 'DA-CASE' (case-sensitive)" },
     { search: 'SLOW-CASE', label: "'Quick' → 'SLOW-CASE' (case-sensitive)" },
+    { search: 'five dollars', label: "'$5.00' → 'five dollars' (special chars)" },
+    { search: 'Cpp', label: "'C++' → 'Cpp' (special chars, case-sensitive)" },
+    { search: '[tested]', label: "'(test)' → '[tested]' (special chars)" },
 ];
 
 let allPassed = true;
 for (const check of checks) {
     if (result.includes(check.search)) {
-        console.log(`  ✓ PASS: ${check.label}`);
+        console.log(`  [PASS]: ${check.label}`);
     } else {
-        console.log(`  ✗ FAIL: ${check.label} — "${check.search}" not found in output`);
+        console.log(`  [FAIL]: ${check.label} — "${check.search}" not found in output`);
         allPassed = false;
     }
 }
 
 // Verify disabled rules are NOT applied
 if (result.includes('SHOULD_NOT_APPEAR')) {
-    console.log('  ✗ FAIL: Disabled rule was applied (should have been skipped)');
+    console.log('  [FAIL]: Disabled rule was applied (should have been skipped)');
     allPassed = false;
 } else {
-    console.log('  ✓ PASS: Disabled rule correctly skipped');
+    console.log('  [PASS]: Disabled rule correctly skipped');
+}
+
+// Verify the MAX_TEXT_NODE_LENGTH guard: nodes exceeding 50,000 characters
+// should be skipped entirely (no replacements applied).
+const oversizedNode = {
+    nodeType: 3,
+    nodeValue: 'the '.repeat(15000), // 60,000 chars, exceeds 50,000 limit
+    parentNode: { tagName: 'DIV', isContentEditable: false }
+};
+const originalValue = oversizedNode.nodeValue;
+sandbox.processNode(oversizedNode);
+if (oversizedNode.nodeValue === originalValue) {
+    console.log('  [PASS] Oversized text node correctly skipped');
+} else {
+    console.log('  [FAIL] Oversized text node should have been skipped but was modified');
+    allPassed = false;
 }
 
 if (!allPassed) {

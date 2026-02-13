@@ -70,6 +70,18 @@ jobs:
               gecko_id = fm["browser_specific_settings"]["gecko"]["id"]
               print(f"  Firefox:  valid (MV{fm['manifest_version']}, gecko ID: {gecko_id})")
 
+          # Verify version fields match between manifests
+          if cm["version"] != fm["version"]:
+              errors.append(f"Version mismatch: chromium={cm['version']}, firefox={fm['version']}")
+
+          # Verify shared manifest fields are consistent across browsers.
+          # These fields should be identical in both manifests — differences
+          # usually indicate a copy-paste mistake or a missed update.
+          shared_keys = ['permissions', 'host_permissions', 'content_scripts', 'icons', 'action']
+          for key in shared_keys:
+              if cm.get(key) != fm.get(key):
+                  errors.append(f"Manifest field '{key}' differs between chromium and firefox")
+
           if errors:
               for e in errors:
                   print(f"ERROR: {e}")
@@ -146,6 +158,11 @@ jobs:
           # while catching any URL that would actually execute at runtime.
 
           url_pattern = re.compile(r'https?://[a-zA-Z]')
+          # Protocol-relative URLs (e.g., //evil.com/script.js) load external
+          # resources using the current page's protocol. They bypass the
+          # https?:// check above, so we need a separate pattern. The negative
+          # lookbehind (?<![:\w]) avoids matching the :// in "https://".
+          proto_relative_pattern = re.compile(r'(?<![:\w])//[a-zA-Z]')
           # Patterns for single-line comment removal (applied AFTER block comment tracking)
           comment_patterns = [
               # JS single-line comments: matches // but NOT :// (URL protocol).
@@ -197,7 +214,7 @@ jobs:
                       for cp in comment_patterns:
                           stripped = cp.sub('', stripped)
 
-                      if url_pattern.search(stripped):
+                      if url_pattern.search(stripped) or proto_relative_pattern.search(stripped):
                           found.append(f"  {filepath}:{lineno}: {line.rstrip()}")
 
           if found:

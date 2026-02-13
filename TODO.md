@@ -2,45 +2,59 @@
 
 ## Round 2 (completed in commit d728c96)
 
-- [x] H1–H10, M1–M13, L1–L11, T1–T4 — All implemented
-- [x] T5 — `mock_chrome.js` retained (used by `benchmark_performance.py`)
+- [x] All 39 findings implemented
+
+## Round 3 (completed in commit 21a1cab)
+
+- [x] All 28 findings implemented
 
 ---
 
-## Round 3
+## Round 4
 
 ### MEDIUM Priority
 
-- [ ] **M1** `content.js` — `replaceCallback` uses truthy check instead of `in` operator for wordMap lookups
-- [ ] **M2** `content.js` — `updateRegexes` doesn't validate `wordMap` parameter type (no `safeWordMap` equivalent)
-- [ ] **M3** `content.js` — No post-replacement length guard on inflated text nodes
-- [ ] **M4** `manage.js` — Case-only rename guard blocks valid renames for case-sensitive rules
-- [ ] **M5** `manage.js` — Missing `RESERVED_KEYS` check on rule rename in `updateReplacement`
-- [ ] **M6** `manage.js` — Missing case-insensitive collision check on rule rename
-- [ ] **M7** `manage.js` — `removeReplacement` deletes without verifying key still exists
-- [ ] **M8** `manage.js` — Empty-state row not removed when first rule is added via direct append
-- [ ] **M9** `manage.js` — `filterRules` counts empty-state row in `totalCount`
-- [ ] **M10** `manage.js` — `RESERVED_KEYS` should be a Set for consistency with `VALID_FIELDS`
-- [ ] **M11** `manage.css` — No `prefers-reduced-motion` support (WCAG accessibility)
-- [ ] **M12** `benchmark.js` — `'da quick'` correctness check appears incorrect (cascade replaces `The` first)
+- [ ] **M1** `content.js` — Toggle-on without prior wordMap load leaves regexes null
+- [ ] **M2** `content.js` — Stale debounced `reprocessTimeout` not cleared on disable
+- [ ] **M3** `content.js` — `processElement` creates wasteful TreeWalker on IGNORED_TAGS elements
+- [ ] **M4** `content.js` — Per-rule type validation missing in `updateRegexes`
+- [ ] **M5** `content.js` — No `MAX_RULES` enforcement for corrupted storage
+- [ ] **M6** `manage.js` — `validateImportedRules` missing `Array.isArray` on individual rule values
+- [ ] **M7** `manage.js` — Blob URL leak if export download throws (needs try/finally)
+- [ ] **M8** `manage.css` — Missing standard `background-clip: text` (unprefixed)
+- [ ] **M9** `manage.html`/`manage.css` — Missing `color-scheme: dark` meta tag
+- [ ] **M10** `manage.css` — `::before` pseudo-element uses legacy single-colon syntax
+- [ ] **M11** `manage.css` — Responsive breakpoint doesn't cover table layout or body padding
+- [ ] **M12** `ci.yml` — CI URL scanner doesn't detect protocol-relative URLs
+- [ ] **M13** `benchmark.js` — Benchmark doesn't test `escapeRegExp` with special regex chars
+- [ ] **M14** `ci.yml` — CI doesn't validate manifest `version` fields match
+- [ ] **M15** `build.sh` — Path traversal via `../` in target arguments
+- [ ] **M16** `manage.css` — `transition: all` on buttons delays focus indicator visibility
+- [ ] **M17** `content.js` — `DOMContentLoaded` fallback doesn't check `readyState` for bfcache
 
 ### LOW Priority
 
-- [ ] **L1** `content.js` — Double `shouldProcessNode` check is undocumented defense-in-depth
-- [ ] **L2** `content.js` — No `RESERVED_KEYS` filter in `updateRegexes()`
-- [ ] **L3** `content.js` — Shared timeout budget across regex passes is undocumented
-- [ ] **L4** `manage.js` — `estimateStorageSize` wraps wordMap slightly inflating estimate
-- [ ] **L5** `manage.js` — `showStatus` doesn't clear CSS classes on timeout
-- [ ] **L6** `manage.js` — `confirm()` import dialog has no abort option (merge vs replace vs cancel)
-- [ ] **L7** `manage.js` — `exportRules` doesn't handle `getManifest()` failure
-- [ ] **L8** `manage.js` — `addReplacement` collision check only runs one direction (new case-insensitive only)
-- [ ] **L9** `manage.js` — `safeWordMap` returns raw storage reference (no defensive copy)
-- [ ] **L10** `manage.js` — Empty-state `colspan="5"` is hardcoded
-- [ ] **L11** `manage.js` — `exportRules` creates two `Date` objects that could span midnight
-- [ ] **L12** `README.md` — CSP documentation stale (`object-src 'self'` should be `'none'`)
-- [ ] **L13** `ci.yml` — CI doesn't validate `action.default_icon` file references
-- [ ] **L14** `manage.css` — Table container clips overflow without horizontal scroll
-- [ ] **L15** `CLAUDE.md` — `MAX_TEXT_NODE_LENGTH` missing from Key Limits table
-- [ ] **L16** `TODO.md` — Item T5 incorrectly marked `mock_chrome.js` as dead code (now fixed)
-- [ ] **L17** `ci.yml` — Redundant `/* ... */` comment pattern in CI URL scanner
-- [ ] **L18** `manage.js`/`manage.html` — No `aria-live` improvements for dynamic status announcements
+- [ ] **L1** `content.js` — Stale line number reference in comment
+- [ ] **L2** `content.js` — `matchCounter` cross-pass inheritance undocumented
+- [ ] **L3** `content.js` — SVG text elements not in IGNORED_TAGS
+- [ ] **L4** `content.js` — `observer.observe()` has no error handling
+- [ ] **L5** `content.js` — Extension context invalidation not handled in `onChanged`
+- [ ] **L6** `content.js` — FILTER_REJECT rationale comment missing from `processElement`
+- [ ] **L7** `manage.js` — Rename collision check missing symmetric case-sensitive direction
+- [ ] **L8** `manage.js` — Search debounce captures event object instead of value eagerly
+- [ ] **L9** `manage.js` — `filterRules` still uses `forEach` (inconsistent with convention)
+- [ ] **L10** `manage.js` — `estimateStorageSize` keyOverhead=9 comment unclear
+- [ ] **L11** `manage.js` — Import merge doesn't strip RESERVED_KEYS from existing storage
+- [ ] **L12** `manage.js` — No `scrollIntoView` for newly added rule row
+- [ ] **L13** `manage.js` — `confirm()` dialog doesn't truncate long `originalText`
+- [ ] **L14** `manage.css` — Missing `box-sizing: border-box` global reset
+- [ ] **L15** `manage.css` — No `::placeholder` styling for dark theme
+- [ ] **L16** `mock_chrome.js` — Doesn't mock `getManifest()`
+- [ ] **L17** `ci.yml` — CI doesn't validate manifest `permissions`/`host_permissions` match
+- [ ] **L18** `benchmark.js` — Doesn't exercise `MAX_TEXT_NODE_LENGTH` guard
+- [ ] **L19** `benchmark.js` — `REGEX_TIMEOUT_MS` patch should use regex, exit on failure
+- [ ] **L20** docs — `benchmark_performance.py` undocumented in CLAUDE.md/README
+- [ ] **L21** `manage.html` — Missing favicon declaration
+- [ ] **L22** `benchmark.js` — Uses emoji that may not render on all terminals
+- [ ] **L23** `benchmark.js` — Sandbox doesn't explicitly mock `setTimeout`/`clearTimeout`
+- [ ] **L24** `content.js` — `shouldProcessNode` doesn't guard against non-element parentNode

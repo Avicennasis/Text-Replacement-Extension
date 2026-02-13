@@ -239,6 +239,17 @@ function updateRegexes(wordMap) {
     return;
   }
 
+  // Mirror the MAX_RULES limit from manage.js. If storage is manually tampered
+  // with (via DevTools or corrupted sync) to contain thousands of rules, compiling
+  // a regex with that many alternatives could freeze the page. We silently truncate
+  // to the first 255 entries and log a warning.
+  const MAX_RULES_LIMIT = 255;
+  const entries = Object.entries(wordMap);
+  if (entries.length > MAX_RULES_LIMIT) {
+    Logger.warn('wordMap contains', entries.length, 'rules (limit is', MAX_RULES_LIMIT + ') — only the first', MAX_RULES_LIMIT, 'will be used.');
+  }
+  const entriesToProcess = entries.length > MAX_RULES_LIMIT ? entries.slice(0, MAX_RULES_LIMIT) : entries;
+
   const sensitiveWords = [];
   const insensitiveWords = [];
   // Use Object.create(null) to prevent prototype pollution — see explanation
@@ -246,18 +257,27 @@ function updateRegexes(wordMap) {
   const activeMap = Object.create(null);
   const activeLowerMap = Object.create(null);
 
-  for (const [word, data] of Object.entries(wordMap)) {
+  for (const [word, data] of entriesToProcess) {
+    // Skip JavaScript reserved property names that could appear in storage
+    // due to manual edits or corrupted imports. The Object.create(null) caches
+    // protect against prototype pollution, but these keys would still produce
+    // nonsensical regex patterns.
+    if (word === '__proto__' || word === 'constructor' || word === 'prototype') {
+      Logger.warn('Skipping reserved key in wordMap:', word);
+      continue;
+    }
+
+    // Skip malformed rules where the value is not an object (e.g., corrupted
+    // storage where a key maps to a string, number, or array instead of the
+    // expected {replacement, caseSensitive, enabled} structure).
+    if (typeof data !== 'object' || Array.isArray(data)) {
+      Logger.warn('Skipping malformed rule (expected object, got ' + typeof data + '):', word);
+      continue;
+    }
+
     // Only include rules that are explicitly enabled.
     // Rules with enabled === undefined are treated as enabled (backwards compat).
     if (data.enabled !== false) {
-      // Skip JavaScript reserved property names that could appear in storage
-      // due to manual edits or corrupted imports. The Object.create(null) caches
-      // protect against prototype pollution, but these keys would still produce
-      // nonsensical regex patterns.
-      if (word === '__proto__' || word === 'constructor' || word === 'prototype') {
-        Logger.warn('Skipping reserved key in wordMap:', word);
-        continue;
-      }
 
       activeMap[word] = data;
 
@@ -298,7 +318,13 @@ function updateRegexes(wordMap) {
  * - SCRIPT/STYLE/NOSCRIPT: Break website functionality or inject code
  * - TEXTAREA/INPUT: Corrupt text the user is actively typing
  */
-const IGNORED_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT']);
+// SVG is included because replacing text inside SVG elements could break
+// rendered charts, diagrams, and other vector graphics. SVG elements use
+// lowercase tagName in the DOM when inside HTML documents, so we include both
+// the uppercase and lowercase forms for safety.
+const IGNORED_TAGS = new Set([
+    'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SVG', 'svg'
+]);
 
 /**
  * Checks if a DOM node is inside an editable area (like a rich text editor).
@@ -334,7 +360,9 @@ function shouldProcessNode(node) {
   // were removed from the DOM between when the mutation was recorded and
   // when this callback runs. Without this check, accessing parentNode.tagName
   // would throw a TypeError (Cannot read properties of null).
-  if (!node.parentNode) return false;
+  // Some unusual DOM structures (e.g., text nodes directly under the document
+  // node) have a parentNode with no tagName. Skip these safely.
+  if (!node.parentNode || !node.parentNode.tagName) return false;
 
   // Skip nodes inside tags we should never modify (SCRIPT, STYLE, etc.)
   if (IGNORED_TAGS.has(node.parentNode.tagName)) return false;
@@ -444,6 +472,9 @@ function processNode(node) {
   // regardless of how many passes are needed.
   nodeProcessingStartTime = performance.now();
   matchCounter = 0;
+  // Note: matchCounter is NOT reset between the case-sensitive and case-insensitive
+  // passes. This is intentional — the timeout budget is shared across both passes,
+  // so the counter reflects total work done on this node, not per-pass work.
 
   try {
     // TWO-PASS REPLACEMENT (cascade design)
@@ -574,6 +605,13 @@ function processElement(element) {
   if (!extensionEnabled) return;
   if (!sensitiveRegex && !insensitiveRegex) return;
 
+  // Skip entire element subtrees for tags we never modify (SCRIPT, STYLE, etc.).
+  // This avoids creating a TreeWalker and iterating all children only to reject
+  // every text node inside — a common scenario when SPAs inject code blocks.
+  if (element.nodeType === Node.ELEMENT_NODE && IGNORED_TAGS.has(element.tagName)) {
+    return;
+  }
+
   // If it's a bare text node (not wrapped in an element), process it directly.
   if (element.nodeType === Node.TEXT_NODE) {
     // Use the shared safety filter (checks for detached nodes, ignored tags,
@@ -594,6 +632,8 @@ function processElement(element) {
       {
         acceptNode: (node) => {
           // Use the shared safety filter (see shouldProcessNode for details).
+          // FILTER_REJECT and FILTER_SKIP are equivalent for text nodes
+          // (no children to skip). See processDocument() for full explanation.
           if (!shouldProcessNode(node)) {
             return NodeFilter.FILTER_REJECT;
           }
@@ -653,16 +693,33 @@ const observer = new MutationObserver((mutations) => {
 // text node (a childList change), not just its content, so this is not
 // a significant limitation in practice.
 if (document.body) {
-  observer.observe(document.body, { childList: true, subtree: true });
+  try {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } catch (e) {
+    Logger.error('Failed to start MutationObserver:', e);
+  }
 } else {
-  // Fallback: if document.body is not yet available (unusual timing with
-  // about:blank frames or certain browser loading sequences), wait for
-  // DOMContentLoaded to start observing.
-  document.addEventListener('DOMContentLoaded', () => {
+  // document.body is not yet available. This can happen on about:blank frames
+  // or if the content script loads before the parser creates <body>.
+  const startObserver = () => {
     if (document.body) {
-      observer.observe(document.body, { childList: true, subtree: true });
+      try {
+        observer.observe(document.body, { childList: true, subtree: true });
+      } catch (e) {
+        Logger.error('Failed to start MutationObserver:', e);
+      }
+    } else {
+      Logger.warn('document.body still not available — observer not started.');
     }
-  });
+  };
+  // If the document is still loading, wait for DOMContentLoaded.
+  // If it has already finished loading (e.g., bfcache restoration),
+  // start the observer immediately since DOMContentLoaded won't fire again.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startObserver);
+  } else {
+    startObserver();
+  }
 }
 
 // KNOWN LIMITATIONS:
@@ -710,6 +767,11 @@ chrome.storage.sync.get(['wordMap', 'extensionEnabled'], (data) => {
 // immediately on all open tabs.
 // -----------------------------------------------------------------------------
 chrome.storage.onChanged.addListener((changes, area) => {
+  // Guard against the extension context being invalidated (e.g., after an
+  // extension update or uninstall while the page is still open). Accessing
+  // chrome APIs in this state throws "Extension context invalidated."
+  if (chrome.runtime.id === undefined) return;
+
   if (area === 'sync') {
     // Track what actually changed so we only do the minimum work needed.
     let needsReprocess = false;
@@ -718,17 +780,39 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (changes.extensionEnabled) {
       const wasEnabled = extensionEnabled;
       // Use !== false (not direct assignment) to match the initial load behavior
-      // at line 538. This ensures that if the key is deleted from storage
-      // (newValue would be undefined), we default to enabled — consistent with
-      // how a fresh install behaves (no key = enabled by default).
+      // in the chrome.storage.sync.get callback above. This ensures that if the
+      // key is deleted from storage (newValue would be undefined), we default to
+      // enabled — consistent with how a fresh install behaves.
       extensionEnabled = changes.extensionEnabled.newValue !== false;
 
       // If we just turned ON (was off, now on), we need to process the page
       // to apply rules that were previously inactive.
       if (!wasEnabled && extensionEnabled) {
-        needsReprocess = true;
+        // If regexes were never built (e.g., extension was toggled off before
+        // the initial storage load completed), reload the wordMap from storage
+        // before attempting to reprocess the page.
+        if (!sensitiveRegex && !insensitiveRegex) {
+          chrome.storage.sync.get('wordMap', (reloadData) => {
+            if (chrome.runtime.lastError) {
+              Logger.error('Failed to reload wordMap on enable:', chrome.runtime.lastError);
+              return;
+            }
+            if (reloadData.wordMap) {
+              updateRegexes(reloadData.wordMap);
+            }
+            processDocument();
+          });
+        } else {
+          needsReprocess = true;
+        }
       }
-      // If turning OFF, no action needed — processNode checks the flag.
+
+      // If turning OFF, cancel any pending debounced reprocess so it
+      // doesn't fire after disable.
+      if (wasEnabled && !extensionEnabled) {
+        clearTimeout(reprocessTimeout);
+        reprocessTimeout = null;
+      }
     }
 
     // Check if the replacement rules themselves changed.
