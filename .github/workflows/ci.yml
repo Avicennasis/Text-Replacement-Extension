@@ -40,7 +40,9 @@ jobs:
           node-version: 20
 
       - name: Run tests
-        run: node tests/benchmark.js
+        run: |
+          node tests/benchmark.js
+          node tests/validate_import_test.js
 
       - name: Validate manifests
         run: |
