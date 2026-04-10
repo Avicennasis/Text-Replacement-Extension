@@ -668,9 +668,11 @@ function processElement(element) {
 // not the entire page with thousands of existing tweets.
 //
 // RACE CONDITION FIX:
-// We start the observer IMMEDIATELY (before loading rules from storage).
-// This ensures we don't miss any dynamic content that loads while we're
-// fetching settings from the browser's storage API (which is asynchronous).
+// We start the observer IMMEDIATELY (before loading rules from storage)
+// and target document.documentElement. This ensures we don't miss any
+// dynamic content that loads while we're fetching settings from storage
+// (which is asynchronous) or while the browser is still parsing the HTML
+// (the <body> might not even exist yet).
 //
 // The observer is safe to run early because processElement() has built-in
 // guards that skip processing when regexes aren't ready yet (they're null).
@@ -692,42 +694,23 @@ const observer = new MutationObserver((mutations) => {
 });
 
 // Start watching immediately — even before rules load from storage.
+// We target document.documentElement (the <html> tag) because it's always
+// available as soon as the script runs, unlike document.body which may
+// not be parsed yet. This eliminates the need for DOMContentLoaded listeners
+// and ensures we catch all dynamic content from the very beginning.
+//
 // childList: watch for nodes being added/removed
-// subtree: watch the entire DOM tree, not just direct children of <body>
+// subtree: watch the entire DOM tree
 // NOTE: characterData is intentionally NOT observed. If we watched text
 // content changes, our own replacement (writing to node.nodeValue) would
 // trigger another mutation, creating an infinite loop. Frameworks that
 // update text bindings (React, Vue, etc.) typically replace the entire
 // text node (a childList change), not just its content, so this is not
 // a significant limitation in practice.
-if (document.body) {
-  try {
-    observer.observe(document.body, { childList: true, subtree: true });
-  } catch (e) {
-    Logger.error('Failed to start MutationObserver:', e);
-  }
-} else {
-  // document.body is not yet available. This can happen on about:blank frames
-  // or if the content script loads before the parser creates <body>.
-  const startObserver = () => {
-    if (document.body) {
-      try {
-        observer.observe(document.body, { childList: true, subtree: true });
-      } catch (e) {
-        Logger.error('Failed to start MutationObserver:', e);
-      }
-    } else {
-      Logger.warn('document.body still not available — observer not started.');
-    }
-  };
-  // If the document is still loading, wait for DOMContentLoaded.
-  // If it has already finished loading (e.g., bfcache restoration),
-  // start the observer immediately since DOMContentLoaded won't fire again.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', startObserver);
-  } else {
-    startObserver();
-  }
+try {
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+} catch (e) {
+  Logger.error('Failed to start MutationObserver:', e);
 }
 
 // KNOWN LIMITATIONS:
