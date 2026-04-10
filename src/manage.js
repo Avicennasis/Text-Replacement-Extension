@@ -1188,11 +1188,15 @@ function importRules(file) {
             const importData = JSON.parse(e.target.result);
 
             // Validate top-level structure.
-            // Note: We check Array.isArray separately because typeof [] === 'object'
+            // JSON.parse can return null (from "null"), a number, a string, etc.
+            // We must check that importData is a non-null object before accessing
+            // .rules, otherwise we get a TypeError instead of our validation message.
+            // We also check Array.isArray separately because typeof [] === 'object'
             // in JavaScript. An array would pass the typeof check but produce
             // nonsensical rules when iterated with Object.entries (keys would be
             // "0", "1", "2", etc. instead of the actual text to replace).
-            if (!importData.rules || typeof importData.rules !== 'object' || Array.isArray(importData.rules)) {
+            if (!importData || typeof importData !== 'object' || Array.isArray(importData) ||
+                !importData.rules || typeof importData.rules !== 'object' || Array.isArray(importData.rules)) {
                 showStatus('Invalid file format! Please select a valid export file.', true);
                 Logger.error('Invalid import file structure:', importData);
                 return;
