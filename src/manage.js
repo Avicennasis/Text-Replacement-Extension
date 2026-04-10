@@ -198,6 +198,38 @@ function safeWordMap(rawWordMap) {
 }
 
 // -----------------------------------------------------------------------------
+// CASE-INSENSITIVE COLLISION DETECTION
+// Checks whether a proposed rule text would collide with an existing
+// case-insensitive rule. Used by both addRule and updateReplacement to
+// prevent silent overlaps in the replacement engine.
+// -----------------------------------------------------------------------------
+
+/**
+ * Searches for an existing case-insensitive rule that matches the given text
+ * (ignoring case). A collision means two case-insensitive rules would compete
+ * for the same matches, with only one actually firing.
+ *
+ * @param {Object} wordMap - The current rules object.
+ * @param {string} text - The proposed rule text to check.
+ * @param {string|null} [excludeKey=null] - A key to skip (used during renames
+ *   so the rule being renamed doesn't collide with itself).
+ * @returns {string|null} - The key of the colliding rule, or null if none found.
+ */
+function findCaseInsensitiveCollision(wordMap, text, excludeKey = null) {
+    const textLower = text.toLowerCase();
+    for (const [key, ruleData] of Object.entries(wordMap)) {
+        if (excludeKey !== null && key === excludeKey) continue;
+        // Skip corrupted entries where the rule value is null or not an object
+        if (!ruleData || typeof ruleData !== 'object') continue;
+        // Only case-insensitive rules can cause a collision/overlap
+        if (!ruleData.caseSensitive && key.toLowerCase() === textLower) {
+            return key;
+        }
+    }
+    return null;
+}
+
+// -----------------------------------------------------------------------------
 // IMPORT VALIDATION
 // Validates that imported rules have the correct structure and safe values.
 // This prevents malformed or malicious import files from corrupting data.
@@ -693,38 +725,18 @@ function updateReplacement(originalText, field, newValue) {
                 return;
             }
 
-            // Prevent case-insensitive collisions when renaming a case-insensitive rule.
-            // For example, renaming "cat" to "Cat" when another case-insensitive "CAT" rule
-            // already exists would create two rules that silently collide in the replacement
-            // engine — only one would actually work.
-            if (!originalData.caseSensitive) {
-                const newLower = newValue.toLowerCase();
-                for (const [key, ruleData] of Object.entries(wordMap)) {
-                    if (key === originalText) continue;
-                    // Skip corrupted entries where the rule value is null or not an object
-                    if (!ruleData || typeof ruleData !== 'object') continue;
-                    if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
-                        loadWordMap();
-                        showStatus(`A case-insensitive rule for "${key}" already exists and would collide.`, true);
-                        return;
-                    }
+            // Prevent case-insensitive collisions or overlaps when renaming.
+            const collidingKey = findCaseInsensitiveCollision(wordMap, newValue, originalText);
+            if (collidingKey) {
+                loadWordMap();
+                if (!originalData.caseSensitive) {
+                    // Collision: two case-insensitive rules matching the same text.
+                    showStatus(`A case-insensitive rule for "${collidingKey}" already exists and would collide.`, true);
+                } else {
+                    // Overlap: a case-sensitive rule shadowed by an existing insensitive one.
+                    showStatus(`Warning: a case-insensitive rule for "${collidingKey}" already exists and may overlap.`, true);
                 }
-            }
-
-            // Symmetric check: when renaming a case-SENSITIVE rule, warn if an existing
-            // case-INSENSITIVE rule covers the same lowercased text.
-            if (originalData.caseSensitive) {
-                const newLower = newValue.toLowerCase();
-                for (const [key, ruleData] of Object.entries(wordMap)) {
-                    if (key === originalText) continue;
-                    // Skip corrupted entries where the rule value is null or not an object
-                    if (!ruleData || typeof ruleData !== 'object') continue;
-                    if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
-                        loadWordMap();
-                        showStatus(`Warning: a case-insensitive rule for "${key}" already exists and may overlap.`, true);
-                        return;
-                    }
-                }
+                return;
             }
 
             // Handle renames that only differ in case (e.g., "cat" to "Cat").
@@ -863,39 +875,17 @@ function addReplacement() {
             return;
         }
 
-        // Prevent case-insensitive collisions.
-        // If the new rule is case-insensitive, check whether an existing
-        // case-insensitive rule matches the same text (ignoring case).
-        // For example, adding "cat" (case-insensitive) when "Cat" (case-insensitive)
-        // already exists would create two rules that silently collide in the
-        // replacement engine — only one would actually work, and the other
-        // would be ignored with no warning. This check prevents that confusion.
-        if (!newCaseSensitive) {
-            const newLower = newOriginal.toLowerCase();
-            for (const [key, ruleData] of Object.entries(wordMap)) {
-                // Skip corrupted entries where the rule value is null or not an object
-                if (!ruleData || typeof ruleData !== 'object') continue;
-                if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
-                    showStatus(`A case-insensitive rule for "${key}" already exists. Change it to case-sensitive or use the existing rule.`, true);
-                    return;
-                }
+        // Prevent case-insensitive collisions or overlaps.
+        const collidingKey = findCaseInsensitiveCollision(wordMap, newOriginal);
+        if (collidingKey) {
+            if (!newCaseSensitive) {
+                // Collision: two case-insensitive rules matching the same text.
+                showStatus(`A case-insensitive rule for "${collidingKey}" already exists. Change it to case-sensitive or use the existing rule.`, true);
+            } else {
+                // Overlap: a case-sensitive rule shadowed by an existing insensitive one.
+                showStatus(`Warning: a case-insensitive rule for "${collidingKey}" already exists and may overlap.`, true);
             }
-        }
-
-        // Symmetric check: when adding a case-SENSITIVE rule, warn if an existing
-        // case-INSENSITIVE rule covers the same text. The insensitive rule already
-        // matches all case variants, so the new sensitive rule may overlap and
-        // produce unexpected results.
-        if (newCaseSensitive) {
-            const newLower = newOriginal.toLowerCase();
-            for (const [key, ruleData] of Object.entries(wordMap)) {
-                // Skip corrupted entries where the rule value is null or not an object
-                if (!ruleData || typeof ruleData !== 'object') continue;
-                if (!ruleData.caseSensitive && key.toLowerCase() === newLower) {
-                    showStatus(`Warning: a case-insensitive rule for "${key}" already exists and may overlap.`, true);
-                    return;
-                }
-            }
+            return;
         }
 
         // Add the new rule
