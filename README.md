@@ -1,5 +1,11 @@
 # Avic's Text Replacement Extension
 
+[![CI](https://github.com/Avicennasis/Text-Replacement-Extension/actions/workflows/test.yml/badge.svg)](https://github.com/Avicennasis/Text-Replacement-Extension/actions/workflows/test.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/Avicennasis/Text-Replacement-Extension/badge)](https://scorecard.dev/viewer/?uri=github.com/Avicennasis/Text-Replacement-Extension)
+[![Release](https://img.shields.io/github/v/release/Avicennasis/Text-Replacement-Extension?display_name=tag)](https://github.com/Avicennasis/Text-Replacement-Extension/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
 A powerful, secure, and modern browser extension that automatically replaces text on websites you visit. Works with **Google Chrome**, **Microsoft Edge**, **Opera**, and **Firefox** — all from a single codebase.
 
 > **Unified Codebase:** Both browsers share identical source code, with only the manifest file differing between Chromium and Firefox builds.
