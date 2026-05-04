@@ -327,6 +327,18 @@ const IGNORED_TAGS = new Set([
     'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SVG', 'svg'
 ]);
 
+// The browser tags every element with a "namespace" — a label saying what
+// kind of element it is. SVG drawings (charts, icons, diagrams) all carry
+// the namespace below. We use this to detect "is this text inside an SVG?"
+// in O(1), without walking up the DOM tree on every text node.
+//
+// IMPORTANT: this string is an IDENTIFIER, not a network address. The
+// browser never fetches it. It's the same kind of label as "DIV" or "SPAN"
+// — just one the W3C standardised as a URL for historical reasons. The
+// extension makes ZERO network requests, ever.
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+
 /**
  * Checks if a DOM node is inside an editable area (like a rich text editor).
  * We skip these so we don't change text while the user is typing.
@@ -368,11 +380,37 @@ function shouldProcessNode(node) {
   // Skip nodes inside tags we should never modify (SCRIPT, STYLE, etc.)
   if (IGNORED_TAGS.has(node.parentNode.tagName)) return false;
 
-  // Check for SVG ancestors beyond the immediate parent. SVG child elements
-  // like <g>, <text>, and <tspan> are not in IGNORED_TAGS individually, so we
-  // walk up the ancestor chain to find if this node lives inside an SVG tree.
-  // Replacing text inside SVG could break rendered charts and diagrams.
-  if (node.parentElement && node.parentElement.closest('svg')) return false;
+  // Skip nodes that live inside an SVG drawing. SVG is how web pages render
+  // charts, diagrams, and other vector graphics; the bits of text in them
+  // (axis labels, legend entries, etc.) are part of the picture, and changing
+  // those words could shift labels off the chart or otherwise break what the
+  // user sees.
+  //
+  // To detect "is this text inside an SVG?", every element in the browser
+  // carries a built-in label called namespaceURI. Regular HTML elements
+  // (<div>, <p>, <span>, ...) all share one label; SVG elements
+  // (<svg>, <g>, <text>, <tspan>, ...) all share a different label. The
+  // browser sets these labels automatically when it parses the page, and
+  // every element inside an <svg> inherits the SVG label. So a single,
+  // direct read of the parent element's namespaceURI tells us right away
+  // whether we're inside an SVG, no matter how deeply the text is nested.
+  //
+  // We used to call `parentElement.closest('svg')` here. That worked, but
+  // it walked all the way up the page from the text to the document root
+  // searching for an <svg> tag — for EVERY text node on the page. On
+  // text-heavy pages (Twitter, Reddit, Wikipedia), that's tens of thousands
+  // of upward walks. The namespaceURI check is a single property read and
+  // gives the exact same answer, so it's both faster and equally safe.
+  //
+  // Side benefit: this is also slightly MORE correct than `closest('svg')`.
+  // SVG has a special element called <foreignObject> whose contents are
+  // regular HTML (the browser puts them back in the HTML namespace). The
+  // old check would skip text inside <foreignObject> because there's an
+  // <svg> ancestor; the namespace check correctly processes that text
+  // because the immediate parent's namespaceURI is HTML, not SVG.
+  if (node.parentElement && node.parentElement.namespaceURI === SVG_NAMESPACE) {
+    return false;
+  }
 
   // Skip nodes inside editable areas (contentEditable, rich text editors)
   if (isEditable(node.parentNode)) return false;

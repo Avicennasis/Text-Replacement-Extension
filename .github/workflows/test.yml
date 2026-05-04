@@ -43,6 +43,7 @@ jobs:
         run: |
           node tests/benchmark.js
           node tests/validate_import_test.js
+          node tests/should_process_node_test.js
 
       - name: Validate manifests
         run: |
@@ -166,6 +167,19 @@ jobs:
           # https?:// check above, so we need a separate pattern. The negative
           # lookbehind (?<![:\w]) avoids matching the :// in "https://".
           proto_relative_pattern = re.compile(r'(?<![:\w])//[a-zA-Z]')
+
+          # W3C XML namespace URIs are identifiers, not fetch targets. The
+          # browser uses them as labels (the same way it uses tag names) and
+          # never makes a network request for them. Allowlist the standard
+          # namespaces so they don't false-positive this check. If a future
+          # change actually adds a remote-resource URL to source, it must use
+          # a different host and will still be caught.
+          xml_namespace_allowlist = (
+              'http://www.w3.org/2000/svg',          # SVG (drawings, charts)
+              'http://www.w3.org/1999/xhtml',        # HTML
+              'http://www.w3.org/1998/Math/MathML',  # MathML
+              'http://www.w3.org/1999/xlink',        # XLink (used inside SVG)
+          )
           # Patterns for single-line comment removal (applied AFTER block comment tracking)
           comment_patterns = [
               # JS single-line comments: matches // but NOT :// (URL protocol).
@@ -216,6 +230,12 @@ jobs:
                       # Strip single-line comments (// and <!-- -->)
                       for cp in comment_patterns:
                           stripped = cp.sub('', stripped)
+
+                      # Strip allowlisted XML namespace identifiers. These
+                      # are not fetched URLs; see the comment where the
+                      # allowlist is defined.
+                      for ns in xml_namespace_allowlist:
+                          stripped = stripped.replace(ns, '')
 
                       if url_pattern.search(stripped) or proto_relative_pattern.search(stripped):
                           found.append(f"  {filepath}:{lineno}: {line.rstrip()}")
