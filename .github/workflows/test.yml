@@ -44,6 +44,7 @@ jobs:
           node tests/benchmark.js
           node tests/validate_import_test.js
           node tests/should_process_node_test.js
+          node tests/unit_test.js
 
       - name: Validate manifests
         run: |
