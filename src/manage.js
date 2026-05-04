@@ -440,13 +440,17 @@ function loadWordMap() {
         const wordMap = safeWordMap(data.wordMap);
         const replacementList = document.getElementById('replacementList');
 
-        // Clear existing table rows safely. While innerHTML = '' (empty string)
-        // is technically safe, we avoid innerHTML entirely as a project convention.
-        // This makes it easier to audit the codebase for XSS vectors — if innerHTML
-        // never appears in the code, reviewers don't need to verify each usage.
-        while (replacementList.firstChild) {
-            replacementList.removeChild(replacementList.firstChild);
-        }
+        // Clear existing table rows. We use replaceChildren() with no arguments,
+        // which removes every child element in one call.
+        //
+        // Why not innerHTML = '' ? We never use innerHTML anywhere in this
+        // codebase — that's a project convention. innerHTML accepts strings of
+        // raw HTML, which is exactly the kind of code path that lets XSS bugs
+        // sneak in. By keeping innerHTML completely absent, an auditor can grep
+        // the source for "innerHTML" and find zero matches — no per-use review
+        // needed. replaceChildren() preserves that property: it accepts only DOM
+        // nodes (not text), so it cannot become an XSS vector.
+        replacementList.replaceChildren();
 
         // Build all rows in a DocumentFragment (off-screen), then append once.
         // This is faster than appending each row individually because the browser
@@ -541,6 +545,11 @@ function createToggle(checked, changeCallback, ariaLabel = '') {
 function addRowToTable(originalText, replacement, caseSensitive, enabled, container) {
     const target = container || document.getElementById('replacementList');
     const row = document.createElement('tr');
+    // Mark this as a rule-carrying row so the search-filter code can pick it
+    // up with a single CSS selector — and so it can ignore the "no rules yet"
+    // empty-state row, which has a different shape (one big merged cell, no
+    // input boxes).
+    row.classList.add('rule-row');
 
     // Create table cells
     const originalTextCell = document.createElement('td');
@@ -1302,11 +1311,11 @@ function importRules(file) {
 function filterRules(query) {
     const searchQuery = query.toLowerCase().trim();
 
-    // Filter to only rows that contain rule data (at least two text inputs).
-    // This excludes the "No replacement rules yet" empty-state row, which has
-    // no inputs and should never be counted or hidden by the search filter.
-    const allRows = document.querySelectorAll('#replacementList tr');
-    const rows = Array.from(allRows).filter(row => row.querySelectorAll('input[type="text"]').length >= 2);
+    // Pick up only rows that carry an actual rule. We mark those with the
+    // 'rule-row' class when we build them in addRowToTable(), so we can
+    // grab exactly the rows we want in one go — no need to walk every row
+    // and inspect its contents to skip the "no rules yet" empty-state row.
+    const rows = document.querySelectorAll('#replacementList tr.rule-row');
     const totalCount = rows.length;
     if (totalCount === 0) {
         document.getElementById('searchResults').textContent = '';
@@ -1324,12 +1333,21 @@ function filterRules(query) {
         return;
     }
 
-    // Filter rows: show only those where original or replacement text matches
+    // Filter rows: show only those where original or replacement text matches.
+    //
+    // Each rule row was built in addRowToTable() with a fixed cell layout:
+    //   cell 0: <td> wrapping the "original text" <input>
+    //   cell 1: <td> wrapping the "replacement text" <input>
+    //   cells 2-4: case-sensitive toggle, enabled toggle, remove button.
+    //
+    // Reading the input values via row.cells[N].firstElementChild is a direct
+    // pointer hop in the browser. The previous version called
+    // querySelectorAll('input[type="text"]') on every row — that re-runs the
+    // browser's CSS selector engine for each row, which gets noticeably slow
+    // when the user has hundreds of rules and is typing in the search box.
     for (const row of rows) {
-        const inputs = row.querySelectorAll('input[type="text"]');
-
-        const originalText = inputs[0].value.toLowerCase();
-        const replacementText = inputs[1].value.toLowerCase();
+        const originalText = row.cells[0].firstElementChild.value.toLowerCase();
+        const replacementText = row.cells[1].firstElementChild.value.toLowerCase();
 
         const matches = originalText.includes(searchQuery) || replacementText.includes(searchQuery);
 
