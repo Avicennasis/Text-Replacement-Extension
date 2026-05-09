@@ -236,7 +236,7 @@ function updateRegexes(wordMap) {
     wordMapCacheLower = Object.create(null);
     sensitiveRegex = null;
     insensitiveRegex = null;
-    return;
+    return { wordMapCache, wordMapCacheLower, sensitiveRegex, insensitiveRegex };
   }
 
   // Mirror the MAX_RULES limit from manage.js. If storage is manually tampered
@@ -306,6 +306,12 @@ function updateRegexes(wordMap) {
   wordMapCacheLower = activeLowerMap;
   sensitiveRegex = buildRegex(sensitiveWords, true);
   insensitiveRegex = buildRegex(insensitiveWords, false);
+
+  // Return a snapshot of what we just built. Production callers ignore
+  // this value — the function works through the side effects above. The
+  // return value exists so the test suite can verify the result without
+  // having to reach inside the file's private state.
+  return { wordMapCache, wordMapCacheLower, sensitiveRegex, insensitiveRegex };
 }
 
 // -----------------------------------------------------------------------------

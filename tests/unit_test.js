@@ -88,7 +88,7 @@ const contentCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'content.j
 vm.createContext(contentSandbox);
 vm.runInContext(contentCode, contentSandbox);
 
-for (const fn of ['escapeRegExp', 'buildRegex', 'isEditable']) {
+for (const fn of ['escapeRegExp', 'buildRegex', 'isEditable', 'updateRegexes']) {
   if (typeof contentSandbox[fn] !== 'function') {
     console.error(`FATAL: content.js did not expose ${fn}() to global scope.`);
     process.exit(1);
@@ -230,6 +230,171 @@ check(
   false
 );
 
+// =============================================================================
+// updateRegexes()
+// =============================================================================
+// The job: take the user's full set of saved rules and rebuild three things
+// the page-scanning code needs to do its work:
+//   1. Two fast lookup tables — one keyed by exact text, one keyed by the
+//      lowercased version of the text — so that during scanning we can ask
+//      "is this word a rule?" and get an answer in one step instead of
+//      walking through every rule.
+//   2. Two compiled matchers — one for "match exact letter case only" rules
+//      and one for "match any letter case" rules.
+// It also defends against bad data (corrupted storage, manual tampering,
+// imported files with wrong shapes) by skipping anything that doesn't look
+// like a real rule, and by capping the total number of rules at 255 so a
+// huge list can never freeze the page.
+console.log('\nupdateRegexes():');
+
+// updateRegexes calls Logger.warn (which routes to console.warn) when it
+// finds bad input. We silence console.warn for the duration of these tests
+// so the test output stays readable. We re-install a counter when we want
+// to confirm a warning actually fired.
+const originalConsoleWarn = contentSandbox.console.warn;
+contentSandbox.console.warn = () => {};
+
+// Helper: turn the snapshot returned by updateRegexes() into a small,
+// easy-to-assert summary. The cache objects use Object.create(null), so
+// they have no prototype — Object.keys() works as expected.
+function summarize(snapshot) {
+  return {
+    cacheKeys: Object.keys(snapshot.wordMapCache).sort(),
+    cacheLowerKeys: Object.keys(snapshot.wordMapCacheLower).sort(),
+    sensitiveRegexSource: snapshot.sensitiveRegex ? snapshot.sensitiveRegex.source : null,
+    insensitiveRegexSource: snapshot.insensitiveRegex ? snapshot.insensitiveRegex.source : null,
+  };
+}
+
+// --- Defensive: invalid input clears state, no crash. ---
+//
+// If storage is corrupted (e.g., the user manually edited it, or an import
+// file overwrote the wordMap with a string), we throw away everything and
+// stop matching. Better to do nothing than to mis-replace text.
+let s = summarize(contentSandbox.updateRegexes(null));
+check('null input clears wordMapCache', s.cacheKeys.length, 0);
+check('null input clears wordMapCacheLower', s.cacheLowerKeys.length, 0);
+check('null input clears sensitiveRegex', s.sensitiveRegexSource, null);
+check('null input clears insensitiveRegex', s.insensitiveRegexSource, null);
+
+s = summarize(contentSandbox.updateRegexes(undefined));
+check('undefined input leaves caches empty', s.cacheKeys.length, 0);
+
+s = summarize(contentSandbox.updateRegexes('not an object'));
+check('string input leaves caches empty', s.cacheKeys.length, 0);
+
+s = summarize(contentSandbox.updateRegexes(42));
+check('number input leaves caches empty', s.cacheKeys.length, 0);
+
+s = summarize(contentSandbox.updateRegexes([{ replacement: 'no' }]));
+check('array input leaves caches empty', s.cacheKeys.length, 0);
+
+// --- Happy path: a small map of healthy rules. ---
+s = summarize(contentSandbox.updateRegexes({
+  cat:  { replacement: 'dog',  caseSensitive: false, enabled: true },
+  Bird: { replacement: 'fish', caseSensitive: true,  enabled: true },
+}));
+check('two healthy rules populate wordMapCache', s.cacheKeys, ['Bird', 'cat']);
+// Only the case-insensitive rule is added to the lowercase lookup map.
+// Case-sensitive rules ("Bird") deliberately stay out of it because they
+// must match exact case at scan time.
+check('only insensitive rule is in wordMapCacheLower', s.cacheLowerKeys, ['cat']);
+check('sensitiveRegex is built when sensitive rules exist', s.sensitiveRegexSource !== null, true);
+check('insensitiveRegex is built when insensitive rules exist', s.insensitiveRegexSource !== null, true);
+
+// --- enabled: false rules are excluded entirely. ---
+s = summarize(contentSandbox.updateRegexes({
+  on:  { replacement: 'lit',  caseSensitive: false, enabled: true },
+  off: { replacement: 'dark', caseSensitive: false, enabled: false },
+}));
+check('enabled rule appears in cache', s.cacheKeys.includes('on'), true);
+check('disabled rule does NOT appear in cache', s.cacheKeys.includes('off'), false);
+
+// --- enabled: undefined treats the rule as enabled (backwards compatibility
+//     with rules saved before the toggle existed). ---
+s = summarize(contentSandbox.updateRegexes({
+  legacy: { replacement: 'kept', caseSensitive: false }, // no `enabled` field
+}));
+check('rule with no enabled field is treated as enabled', s.cacheKeys, ['legacy']);
+
+// --- Reserved property names are skipped. The Object.create(null) caches
+//     already protect against prototype pollution at the storage layer, but
+//     letting "__proto__" or "constructor" through to the regex compiler
+//     would still produce nonsense. ---
+s = summarize(contentSandbox.updateRegexes({
+  __proto__:   { replacement: 'evil', caseSensitive: false, enabled: true },
+  constructor: { replacement: 'evil', caseSensitive: false, enabled: true },
+  prototype:   { replacement: 'evil', caseSensitive: false, enabled: true },
+  good:        { replacement: 'fine', caseSensitive: false, enabled: true },
+}));
+check('__proto__ key is skipped', s.cacheKeys.includes('__proto__'), false);
+check('constructor key is skipped', s.cacheKeys.includes('constructor'), false);
+check('prototype key is skipped', s.cacheKeys.includes('prototype'), false);
+check('non-reserved key alongside reserved keys still passes through', s.cacheKeys.includes('good'), true);
+
+// --- Malformed values are skipped (storage corruption defense). ---
+s = summarize(contentSandbox.updateRegexes({
+  goodRule:   { replacement: 'fine', caseSensitive: false, enabled: true },
+  brokenStr:  'not an object',
+  brokenNum:  42,
+  brokenArr:  ['nope'],
+  brokenNull: null,
+}));
+check('healthy rule survives alongside malformed siblings', s.cacheKeys.includes('goodRule'), true);
+check('string-valued rule is skipped', s.cacheKeys.includes('brokenStr'), false);
+check('number-valued rule is skipped', s.cacheKeys.includes('brokenNum'), false);
+check('array-valued rule is skipped', s.cacheKeys.includes('brokenArr'), false);
+check('null-valued rule is skipped', s.cacheKeys.includes('brokenNull'), false);
+
+// --- Truncation at 255 rules. The cap mirrors MAX_RULES in manage.js and
+//     prevents a tampered or imported wordMap from compiling a regex with
+//     thousands of alternatives (which could freeze the page). ---
+const overlimit = {};
+for (let i = 0; i < 300; i++) {
+  overlimit[`rule_${i}`] = { replacement: `r${i}`, caseSensitive: false, enabled: true };
+}
+s = summarize(contentSandbox.updateRegexes(overlimit));
+check('exactly 255 rules survive when 300 are submitted', s.cacheKeys.length, 255);
+
+// Boundary: exactly 255 rules pass through unchanged (the cap is inclusive).
+const exactly255 = {};
+for (let i = 0; i < 255; i++) {
+  exactly255[`r_${i}`] = { replacement: `x${i}`, caseSensitive: false, enabled: true };
+}
+s = summarize(contentSandbox.updateRegexes(exactly255));
+check('exactly 255 rules at the boundary all pass through', s.cacheKeys.length, 255);
+
+// --- Case-insensitive collisions warn but don't crash. The lowercase lookup
+//     map is keyed by the lowercased text, so two different-cased rules
+//     ("Cat" and "CAT") that are both case-insensitive will overwrite each
+//     other in the map. updateRegexes warns about this and lets the last
+//     write win — the user has already been told via the manage.js UI that
+//     collisions exist, so we don't refuse to load. ---
+let warningCount = 0;
+contentSandbox.console.warn = () => { warningCount++; };
+s = summarize(contentSandbox.updateRegexes({
+  Cat: { replacement: 'feline', caseSensitive: false, enabled: true },
+  CAT: { replacement: 'TIGER',  caseSensitive: false, enabled: true },
+}));
+check('case-insensitive collision triggers a warning', warningCount > 0, true);
+check('both colliding keys still appear in the exact-text cache',
+  s.cacheKeys.includes('Cat') && s.cacheKeys.includes('CAT'), true);
+// Only one entry exists in the lowercase cache (the last write wins).
+check('lowercase cache holds exactly one entry for the colliding pair', s.cacheLowerKeys, ['cat']);
+contentSandbox.console.warn = () => {}; // silence again for remaining tests
+
+// --- All-disabled wordMap leaves regexes empty (no work to do). ---
+s = summarize(contentSandbox.updateRegexes({
+  a: { replacement: 'A', caseSensitive: false, enabled: false },
+  b: { replacement: 'B', caseSensitive: true,  enabled: false },
+}));
+check('all-disabled rules clear sensitiveRegex', s.sensitiveRegexSource, null);
+check('all-disabled rules clear insensitiveRegex', s.insensitiveRegexSource, null);
+check('all-disabled rules leave the exact-text cache empty', s.cacheKeys.length, 0);
+
+// Restore the original console.warn so any later tests in this file see real warnings.
+contentSandbox.console.warn = originalConsoleWarn;
+
 // ---------------------------------------------------------------------------
 // Sandbox 2: manage.js — exposes findCaseInsensitiveCollision.
 // manage.js touches a few more browser globals, so we mock those too.
@@ -274,9 +439,11 @@ const manageCode = fs.readFileSync(path.join(__dirname, '..', 'src', 'manage.js'
 vm.createContext(manageSandbox);
 vm.runInContext(manageCode, manageSandbox);
 
-if (typeof manageSandbox.findCaseInsensitiveCollision !== 'function') {
-  console.error('FATAL: manage.js did not expose findCaseInsensitiveCollision().');
-  process.exit(1);
+for (const fn of ['findCaseInsensitiveCollision', 'validateStorageQuota']) {
+  if (typeof manageSandbox[fn] !== 'function') {
+    console.error(`FATAL: manage.js did not expose ${fn}() to global scope.`);
+    process.exit(1);
+  }
 }
 
 // =============================================================================
@@ -353,6 +520,92 @@ check(
   fn({ broken: 'oops', cat: { caseSensitive: false } }, 'CAT'),
   'cat'
 );
+
+// =============================================================================
+// validateStorageQuota()
+// =============================================================================
+// The job: before the extension saves a set of rules, check whether they will
+// fit in the browser's storage. Browsers limit how much data an extension can
+// keep, both per-key (a stricter limit) and overall. If the user is about to
+// exceed either limit, this function returns a friendly error message that
+// the UI can show — and the save is cancelled. If everything fits, it
+// returns null.
+//
+// Two limits are enforced:
+//   - QUOTA_BYTES_PER_ITEM: 8 KB. All rules are stored under a single key
+//     ("wordMap"), so this is the binding constraint in practice — the
+//     combined size of every rule must fit under 8 KB.
+//   - QUOTA_BYTES (a.k.a. SYNC_QUOTA_BYTES): 100 KB total across all keys.
+//     Only relevant if the extension ever stores additional keys; right now
+//     it doesn't, so hitting this limit before the per-item one is unusual.
+console.log('\nvalidateStorageQuota():');
+
+const vsq = manageSandbox.validateStorageQuota;
+
+// --- Empty wordMap is always within limits. ---
+check('empty wordMap returns null', vsq({}), null);
+
+// --- A handful of small rules is well under the 8 KB per-item limit. ---
+const tinyMap = {
+  cat:  { replacement: 'dog',     caseSensitive: false, enabled: true },
+  yes:  { replacement: 'no',      caseSensitive: false, enabled: true },
+  blue: { replacement: 'green',   caseSensitive: false, enabled: true },
+};
+check('a few small rules return null (well under 8 KB)', vsq(tinyMap), null);
+
+// --- A wordMap that exceeds 8 KB returns the per-item error. We synthesize
+//     this by building rules with very long replacement strings until we
+//     blow past the 8 KB threshold. Each rule serializes to roughly
+//     80 + replacement-length bytes when JSON.stringified. ---
+const overItemMap = {};
+for (let i = 0; i < 30; i++) {
+  // 400-character replacement × 30 rules ≈ 12 KB serialized — comfortably
+  // over the 8 KB QUOTA_BYTES_PER_ITEM limit.
+  overItemMap[`rule_${i}`] = {
+    replacement: 'x'.repeat(400),
+    caseSensitive: false,
+    enabled: true,
+  };
+}
+const overItemResult = vsq(overItemMap);
+check('over-8KB wordMap returns a non-null error string',
+  typeof overItemResult === 'string' && overItemResult.length > 0, true);
+check('over-8KB error mentions the per-item limit',
+  overItemResult && overItemResult.includes('per-item sync limit'), true);
+check('over-8KB error includes the actual size in KB',
+  overItemResult && /\d+(\.\d+)? KB/.test(overItemResult), true);
+
+// --- Boundary: a wordMap that still fits comfortably under 8 KB returns null.
+//     Each rule serializes to roughly 90 + replacement-length bytes (the
+//     JSON wrapper {"replacement":"...","caseSensitive":false,"enabled":true}
+//     plus the key). We pick 40 rules × 80-char replacement ≈ 5 KB, leaving
+//     a healthy margin under the 8 KB QUOTA_BYTES_PER_ITEM cap. ---
+const boundaryMap = {};
+for (let i = 0; i < 40; i++) {
+  boundaryMap[`r${i}`] = {
+    replacement: 'y'.repeat(80),
+    caseSensitive: false,
+    enabled: true,
+  };
+}
+check('wordMap comfortably under 8 KB returns null', vsq(boundaryMap), null);
+
+// --- A wordMap structured to exceed the 100 KB total limit. Because the
+//     per-item check runs FIRST and would catch this too (the per-item
+//     limit is the binding one in practice), we cannot easily isolate
+//     the total-quota branch with normal data. The check is exercised
+//     anyway, just to confirm the function does not crash on huge inputs
+//     and returns a non-null error message. ---
+const hugeMap = {};
+for (let i = 0; i < 200; i++) {
+  hugeMap[`big_${i}`] = {
+    replacement: 'z'.repeat(800),
+    caseSensitive: false,
+    enabled: true,
+  };
+}
+const hugeResult = vsq(hugeMap);
+check('massive wordMap returns a non-null error', typeof hugeResult === 'string', true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
