@@ -118,31 +118,13 @@ function makeTextNode(chain) {
     isContentEditable: entry.isContentEditable ?? false,
   }));
 
-  // Wire up the parent-child links. Element 0 is the closest parent of the
+  // Wire up the parent-child links. Element 0 is the immediate parent of the
   // text; element 1 is its parent; and so on outward. The browser exposes
   // both "parentNode" and "parentElement" — for our purposes they point at
   // the same element.
   for (let i = 0; i < elements.length - 1; i++) {
     elements[i].parentNode = elements[i + 1];
     elements[i].parentElement = elements[i + 1];
-  }
-
-  // The browser's real `closest()` method walks up the chain looking for an
-  // element with a matching tag name. We provide a fake `closest()` that
-  // does the same so tests that exercise the OLD svg-detection code path
-  // (which used `closest('svg')`) still behave correctly. Once the fix is
-  // in place, the function won't call closest() any more, but the tests
-  // remain valid for either implementation.
-  for (const el of elements) {
-    el.closest = function (selector) {
-      const target = selector.toLowerCase();
-      let cur = this;
-      while (cur) {
-        if (cur.tagName && cur.tagName.toLowerCase() === target) return cur;
-        cur = cur.parentElement;
-      }
-      return null;
-    };
   }
 
   // The fake text node itself. nodeType 3 is the standard browser code for
