@@ -11,3 +11,7 @@ Thumbs.db
 *~
 .idea/
 .vscode/
+
+# Python tooling venvs
+venv/
+.venv/
