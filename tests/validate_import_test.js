@@ -86,14 +86,14 @@ console.log('\nvalidateImportedRules — rejection cases\n');
 // 1. Empty key
 (() => {
     const rules = { '': { replacement: 'x', caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('empty'), 'Rejects empty key');
 })();
 
 // 2. Reserved keys
 for (const key of ['__proto__', 'constructor', 'prototype']) {
     const rules = { [key]: { replacement: 'x', caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('reserved'), `Rejects reserved key: "${key}"`);
 }
 
@@ -101,35 +101,35 @@ for (const key of ['__proto__', 'constructor', 'prototype']) {
 (() => {
     const longKey = 'a'.repeat(256);
     const rules = { [longKey]: { replacement: 'x', caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('maximum pattern length'), 'Rejects key exceeding max length');
 })();
 
 // 4. Non-object values
 for (const [label, val] of [['string', 'hello'], ['number', 42], ['null', null], ['array', [1, 2]], ['undefined', undefined]]) {
     const rules = { word: val };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('Invalid rule format'), `Rejects non-object value: ${label}`);
 }
 
 // 5. Missing replacement field
 (() => {
     const rules = { word: { caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('replacement value'), 'Rejects missing replacement (undefined)');
 })();
 
 // 6. Non-string replacement
 for (const [label, val] of [['number', 123], ['boolean', true], ['object', {}], ['array', []]]) {
     const rules = { word: { replacement: val, caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('replacement value'), `Rejects non-string replacement: ${label}`);
 }
 
 // 7. Replacement exceeding max length
 (() => {
     const rules = { word: { replacement: 'b'.repeat(256), caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string' && result.includes('maximum length'), 'Rejects replacement exceeding max length');
 })();
 
@@ -138,8 +138,9 @@ console.log('\nvalidateImportedRules — acceptance & sanitization\n');
 // 8. Valid rule passes
 (() => {
     const rules = { hello: { replacement: 'world', caseSensitive: true, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
-    assert(result === null, 'Accepts valid rule');
+    const { error, cleanRules } = sandbox.validateImportedRules(rules);
+    assert(error === null, 'Accepts valid rule');
+    assert(cleanRules.hello.replacement === 'world', 'Clean rules contain valid rule');
 })();
 
 // 9. Multiple valid rules pass
@@ -148,49 +149,50 @@ console.log('\nvalidateImportedRules — acceptance & sanitization\n');
         foo: { replacement: 'bar', caseSensitive: false, enabled: true },
         baz: { replacement: 'qux', caseSensitive: true, enabled: false }
     };
-    const result = sandbox.validateImportedRules(rules);
-    assert(result === null, 'Accepts multiple valid rules');
+    const { error, cleanRules } = sandbox.validateImportedRules(rules);
+    assert(error === null, 'Accepts multiple valid rules');
+    assert(Object.keys(cleanRules).length === 2, 'Clean rules contain both rules');
 })();
 
 // 10. Key at exactly MAX_PATTERN_LENGTH passes
 (() => {
     const key = 'x'.repeat(255);
     const rules = { [key]: { replacement: 'y', caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
-    assert(result === null, 'Accepts key at exactly max length (255)');
+    const { error } = sandbox.validateImportedRules(rules);
+    assert(error === null, 'Accepts key at exactly max length (255)');
 })();
 
 // 11. Replacement at exactly MAX_PATTERN_LENGTH passes
 (() => {
     const rules = { word: { replacement: 'z'.repeat(255), caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
-    assert(result === null, 'Accepts replacement at exactly max length (255)');
+    const { error } = sandbox.validateImportedRules(rules);
+    assert(error === null, 'Accepts replacement at exactly max length (255)');
 })();
 
 // 12. Boolean coercion for caseSensitive
 (() => {
     const rules = { word: { replacement: 'x', caseSensitive: 1, enabled: true } };
-    sandbox.validateImportedRules(rules);
-    assert(rules.word.caseSensitive === true, 'Coerces truthy caseSensitive (1 → true)');
+    const { cleanRules } = sandbox.validateImportedRules(rules);
+    assert(cleanRules.word.caseSensitive === true, 'Coerces truthy caseSensitive (1 → true)');
 })();
 
 (() => {
     const rules = { word: { replacement: 'x', caseSensitive: 0, enabled: true } };
-    sandbox.validateImportedRules(rules);
-    assert(rules.word.caseSensitive === false, 'Coerces falsy caseSensitive (0 → false)');
+    const { cleanRules } = sandbox.validateImportedRules(rules);
+    assert(cleanRules.word.caseSensitive === false, 'Coerces falsy caseSensitive (0 → false)');
 })();
 
 // 13. Boolean coercion for enabled
 (() => {
     const rules = { word: { replacement: 'x', caseSensitive: false, enabled: 'yes' } };
-    sandbox.validateImportedRules(rules);
-    assert(rules.word.enabled === true, 'Coerces truthy enabled ("yes" → true)');
+    const { cleanRules } = sandbox.validateImportedRules(rules);
+    assert(cleanRules.word.enabled === true, 'Coerces truthy enabled ("yes" → true)');
 })();
 
 (() => {
     const rules = { word: { replacement: 'x', caseSensitive: false, enabled: '' } };
-    sandbox.validateImportedRules(rules);
-    assert(rules.word.enabled === false, 'Coerces falsy enabled ("" → false)');
+    const { cleanRules } = sandbox.validateImportedRules(rules);
+    assert(cleanRules.word.enabled === false, 'Coerces falsy enabled ("" → false)');
 })();
 
 // 14. Unknown fields stripped
@@ -205,8 +207,8 @@ console.log('\nvalidateImportedRules — acceptance & sanitization\n');
             notes: 'test note'
         }
     };
-    sandbox.validateImportedRules(rules);
-    const keys = Object.keys(rules.word).sort();
+    const { cleanRules } = sandbox.validateImportedRules(rules);
+    const keys = Object.keys(cleanRules.word).sort();
     assert(
         keys.length === 3 && keys[0] === 'caseSensitive' && keys[1] === 'enabled' && keys[2] === 'replacement',
         'Strips unknown fields (author, timestamp, notes removed)'
@@ -216,16 +218,16 @@ console.log('\nvalidateImportedRules — acceptance & sanitization\n');
 // 15. Defaults for missing optional booleans
 (() => {
     const rules = { word: { replacement: 'x' } };
-    sandbox.validateImportedRules(rules);
-    assert(rules.word.caseSensitive === false, 'Defaults caseSensitive to false when missing');
-    assert(rules.word.enabled === true, 'Defaults enabled to true when missing');
+    const { cleanRules } = sandbox.validateImportedRules(rules);
+    assert(cleanRules.word.caseSensitive === false, 'Defaults caseSensitive to false when missing');
+    assert(cleanRules.word.enabled === true, 'Defaults enabled to true when missing');
 })();
 
 // 16. Empty replacement string is valid
 (() => {
     const rules = { word: { replacement: '', caseSensitive: false, enabled: true } };
-    const result = sandbox.validateImportedRules(rules);
-    assert(result === null, 'Accepts empty replacement string (deletion rule)');
+    const { error } = sandbox.validateImportedRules(rules);
+    assert(error === null, 'Accepts empty replacement string (deletion rule)');
 })();
 
 // 17. First invalid rule stops validation
@@ -235,7 +237,7 @@ console.log('\nvalidateImportedRules — acceptance & sanitization\n');
         '': { replacement: 'bad', caseSensitive: false, enabled: true },
         also_good: { replacement: 'ok', caseSensitive: false, enabled: true }
     };
-    const result = sandbox.validateImportedRules(rules);
+    const { error: result } = sandbox.validateImportedRules(rules);
     assert(typeof result === 'string', 'Returns error on first invalid rule (does not continue)');
 })();
 

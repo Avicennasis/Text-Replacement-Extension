@@ -263,7 +263,7 @@ function updateRegexes(wordMap) {
     // protect against prototype pollution, but these keys would still produce
     // nonsensical regex patterns.
     if (word === '__proto__' || word === 'constructor' || word === 'prototype') {
-      Logger.warn('Skipping reserved key in wordMap:', word);
+      Logger.warn('Skipping reserved key in wordMap');
       continue;
     }
 
@@ -271,7 +271,7 @@ function updateRegexes(wordMap) {
     // storage where a key maps to a string, number, or array instead of the
     // expected {replacement, caseSensitive, enabled} structure).
     if (!data || typeof data !== 'object' || Array.isArray(data)) {
-      Logger.warn('Skipping malformed rule (expected object, got ' + typeof data + '):', word);
+      Logger.warn('Skipping malformed rule (expected object, got ' + typeof data + ')');
       continue;
     }
 
@@ -289,7 +289,7 @@ function updateRegexes(wordMap) {
         // This shouldn't happen (manage.js prevents it), but imported rules
         // or manually edited storage could contain duplicates.
         if (activeLowerMap[lowerKey]) {
-          Logger.warn(`Case-insensitive collision: "${word}" overlaps with an existing rule for "${lowerKey}". Only one will take effect.`);
+          Logger.warn('Case-insensitive collision detected. Only one rule will take effect.');
         }
         activeLowerMap[lowerKey] = data;
       }
@@ -597,13 +597,12 @@ function processNode(node) {
   } catch (error) {
     if (error instanceof RegexTimeoutError) {
       Logger.warn('Regex timeout on node (skipping)');
-      Logger.debug('Timed-out node content preview:', node.nodeValue?.substring(0, 50));
       return;
     }
     // Log unexpected errors and continue processing other nodes instead of
     // crashing the entire TreeWalker/MutationObserver loop. One corrupted
     // text node should not prevent the rest of the page from being processed.
-    Logger.error('Unexpected error processing node (skipping):', error);
+    Logger.error('Unexpected error processing node: ' + (error?.message || 'Unknown error'));
   }
 }
 

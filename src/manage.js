@@ -184,17 +184,26 @@ function validateStorageQuota(wordMap) {
  * an empty object to prevent crashes from calling Object.entries() on
  * a string, number, array, or null.
  *
+ * This function returns a prototype-less object (Object.create(null)) to
+ * prevent prototype pollution and ensures only own properties are copied.
+ *
  * @param {*} rawWordMap - The value from storage (may be any type).
- * @returns {Object} - A valid wordMap object.
+ * @returns {Object} - A valid, prototype-less wordMap object.
  */
 function safeWordMap(rawWordMap) {
+    const cleanMap = Object.create(null);
     if (rawWordMap && typeof rawWordMap === 'object' && !Array.isArray(rawWordMap)) {
-        return rawWordMap;
+        for (const key in rawWordMap) {
+            if (Object.prototype.hasOwnProperty.call(rawWordMap, key) && !RESERVED_KEYS.has(key)) {
+                cleanMap[key] = rawWordMap[key];
+            }
+        }
+        return cleanMap;
     }
     if (rawWordMap !== undefined) {
         Logger.warn('Storage wordMap is corrupted (expected object, got ' + typeof rawWordMap + '). Using empty rules.');
     }
-    return {};
+    return cleanMap;
 }
 
 // -----------------------------------------------------------------------------
@@ -246,62 +255,67 @@ function findCaseInsensitiveCollision(wordMap, text, excludeKey = null) {
  * This prevents storage bloat — unknown fields would accumulate across
  * import/export cycles, eating into the 8 KB per-item quota.
  *
- * @param {Object} rules - The rules object from an import file. MUTATED in place.
- * @returns {string|null} - Error message if invalid, null if all rules are valid.
+ * This function returns a new, prototype-less object containing only the
+ * validated and sanitized rules.
+ *
+ * @param {Object} rules - The rules object from an import file.
+ * @returns {Object} - { error: string|null, cleanRules: Object|null }
  */
 function validateImportedRules(rules) {
+    const cleanRules = Object.create(null);
+
     for (const [key, value] of Object.entries(rules)) {
         // Reject empty keys — an empty original text would create a zero-width
         // regex alternation (e.g., "cat||dog") that matches at every character
         // boundary, causing replacements to fire between every character.
         if (key.length === 0) {
-            return 'Invalid rule: empty original text is not allowed. Every rule must specify the text to find.';
+            return { error: 'Invalid rule: empty original text is not allowed. Every rule must specify the text to find.', cleanRules: null };
         }
 
         if (RESERVED_KEYS.has(key)) {
-            return 'Invalid rule: "' + key + '" is a reserved JavaScript keyword and cannot be used as rule text.';
+            return { error: 'Invalid rule: "' + key + '" is a reserved JavaScript keyword and cannot be used as rule text.', cleanRules: null };
         }
 
         // Validate original text (key) length
         if (key.length > MAX_PATTERN_LENGTH) {
-            return `Rule "${key.substring(0, 30)}..." exceeds the maximum pattern length of ${MAX_PATTERN_LENGTH} characters.`;
+            return { error: `Rule "${key.substring(0, 30)}..." exceeds the maximum pattern length of ${MAX_PATTERN_LENGTH} characters.`, cleanRules: null };
         }
 
         // Validate that the rule value is an object (not a string, number, array, etc.)
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
-            return `Invalid rule format for "${key}". Expected an object with a "replacement" property.`;
+            return { error: `Invalid rule format for "${key}". Expected an object with a "replacement" property.`, cleanRules: null };
         }
 
         // Validate that replacement is a string
         if (typeof value.replacement !== 'string') {
-            return `Invalid replacement value for "${key}". Expected a text string, got ${typeof value.replacement}.`;
+            return { error: `Invalid replacement value for "${key}". Expected a text string, got ${typeof value.replacement}.`, cleanRules: null };
         }
 
         // Validate replacement length
         if (value.replacement.length > MAX_PATTERN_LENGTH) {
-            return `Replacement for "${key.substring(0, 30)}..." exceeds the maximum length of ${MAX_PATTERN_LENGTH} characters.`;
+            return { error: `Replacement for "${key.substring(0, 30)}..." exceeds the maximum length of ${MAX_PATTERN_LENGTH} characters.`, cleanRules: null };
         }
 
         // Sanitize boolean fields — coerce non-boolean values to proper booleans.
         // This prevents unexpected behavior from malformed import files.
-        if (value.caseSensitive !== undefined && typeof value.caseSensitive !== 'boolean') {
-            value.caseSensitive = Boolean(value.caseSensitive);
-        }
-        if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
-            value.enabled = Boolean(value.enabled);
-        }
+        // Note: we use ?? to provide defaults BEFORE Boolean() coercion if the
+        // property is missing entirely, as Boolean(undefined) is false.
+        const caseSensitive = typeof value.caseSensitive === 'boolean' ? value.caseSensitive : Boolean(value.caseSensitive ?? false);
+        const enabled = typeof value.enabled === 'boolean' ? value.enabled : Boolean(value.enabled ?? true);
 
         // Strip unknown fields — only keep the three known properties.
         // This prevents storage bloat from extra fields in import files
         // (e.g., editor metadata, user notes, timestamps from other tools).
-        rules[key] = {
-            replacement: value.replacement,
-            caseSensitive: value.caseSensitive ?? false,
-            enabled: value.enabled ?? true
-        };
+        // We create a fresh object with NO prototype for each rule value.
+        const cleanRule = Object.create(null);
+        cleanRule.replacement = value.replacement;
+        cleanRule.caseSensitive = caseSensitive;
+        cleanRule.enabled = enabled;
+
+        cleanRules[key] = cleanRule;
     }
 
-    return null; // All rules are valid
+    return { error: null, cleanRules }; // All rules are valid
 }
 
 // -----------------------------------------------------------------------------
@@ -917,7 +931,8 @@ function addReplacement() {
                 Logger.error('Failed to add new replacement:', chrome.runtime.lastError);
                 showStatus('Failed to add replacement. Storage full?', true);
             } else {
-                Logger.debug('New replacement added:', newOriginal, '\u2192', newReplacement);
+                // Redact replacement text in debug logs to prevent information exposure.
+                Logger.debug('New replacement added (redacted)');
 
                 // Remove the "No replacement rules yet" message if present,
                 // so the first real rule row appears cleanly.
@@ -999,7 +1014,8 @@ function removeReplacement(originalText) {
                 showStatus('Failed to remove replacement.', true);
                 loadWordMap(); // Revert to previous state
             } else {
-                Logger.debug('Replacement removed:', originalText);
+                // Redact original text in debug logs to prevent information exposure.
+                Logger.debug('Replacement removed (redacted)');
                 loadWordMap(); // Reload table to reflect removal
                 showStatus('Replacement removed.');
             }
@@ -1184,7 +1200,12 @@ function importRules(file) {
 
     reader.onload = (e) => {
         try {
-            const importData = JSON.parse(e.target.result);
+            // Use a reviver to immediately strip reserved keys during parsing.
+            // This is a defense-in-depth measure against prototype pollution.
+            const importData = JSON.parse(e.target.result, (key, value) => {
+                if (RESERVED_KEYS.has(key)) return undefined;
+                return value;
+            });
 
             // Validate top-level structure.
             // JSON.parse can return null (from "null"), a number, a string, etc.
@@ -1197,22 +1218,24 @@ function importRules(file) {
             if (!importData || typeof importData !== 'object' || Array.isArray(importData) ||
                 !importData.rules || typeof importData.rules !== 'object' || Array.isArray(importData.rules)) {
                 showStatus('Invalid file format! Please select a valid export file.', true);
-                Logger.error('Invalid import file structure:', importData);
+                // Redact importData to prevent logging potentially sensitive user rules or malformed JSON content.
+                Logger.error('Invalid import file structure (redacted)');
                 return;
             }
 
-            const importedRules = importData.rules;
-            const importCount = Object.keys(importedRules).length;
+            const importedRawRules = importData.rules;
 
-            if (importCount === 0) {
-                showStatus('The import file contains no rules!', true);
-                return;
-            }
-
-            // Validate each imported rule for correct types and safe lengths
-            const validationError = validateImportedRules(importedRules);
+            // Validate each imported rule for correct types and safe lengths.
+            // This returns a new, clean, prototype-less object.
+            const { error: validationError, cleanRules: importedRules } = validateImportedRules(importedRawRules);
             if (validationError) {
                 showStatus(validationError, true);
+                return;
+            }
+
+            const importCount = Object.keys(importedRules).length;
+            if (importCount === 0) {
+                showStatus('The import file contains no rules!', true);
                 return;
             }
 
@@ -1238,18 +1261,22 @@ function importRules(file) {
                     return;
                 }
 
-                let finalRules;
+                let finalRules = Object.create(null);
 
                 if (shouldReplace) {
                     finalRules = importedRules;
                     Logger.debug('Import mode: REPLACE');
                 } else {
-                    // Merge: imported rules overwrite existing ones on conflict
-                    finalRules = { ...safeWordMap(data.wordMap), ...importedRules };
+                    // Merge: imported rules overwrite existing ones on conflict.
+                    // We merge into a prototype-less object for safety.
+                    const existingRules = safeWordMap(data.wordMap);
+                    // Use Object.assign to merge into the fresh prototype-less object.
+                    // Spread syntax { ... } would create a regular object with a prototype.
+                    Object.assign(finalRules, existingRules, importedRules);
                     Logger.debug('Import mode: MERGE');
                 }
 
-                // Remove reserved keys that could have entered storage through manual
+                // Double-check: Remove reserved keys that could have entered storage through manual
                 // tampering, ensuring the merged result is clean before saving.
                 for (const key of RESERVED_KEYS) {
                     delete finalRules[key];
@@ -1375,5 +1402,6 @@ function filterRules(query) {
         resultsEl.classList.add('search-partial');
     }
 
-    Logger.debug('Search query:', searchQuery, '| Visible:', visibleCount, '/', totalCount);
+    // Redact the search query in debug logs to prevent information exposure.
+    Logger.debug('Search completed | Visible:', visibleCount, '/', totalCount);
 }
