@@ -45,6 +45,10 @@ jobs:
           node tests/validate_import_test.js
           node tests/should_process_node_test.js
           node tests/unit_test.js
+          node tests/build_regex_test.js
+          node tests/storage_size_test.js
+          node tests/security_logging_test.js
+          node tests/safe_word_map_test.js
 
       - name: Validate manifests
         run: |
