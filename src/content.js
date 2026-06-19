@@ -358,7 +358,12 @@ const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
  * @returns {boolean} - True if the node is editable and should be skipped.
  */
 function isEditable(node) {
-  return node.isContentEditable || (node.parentNode?.isContentEditable ?? false);
+  let current = node;
+  while (current) {
+    if (current.isContentEditable) return true;
+    current = current.parentNode;
+  }
+  return false;
 }
 
 /**

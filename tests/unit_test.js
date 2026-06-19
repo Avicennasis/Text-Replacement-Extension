@@ -229,6 +229,39 @@ check(
   contentSandbox.isEditable({ isContentEditable: false }),
   false
 );
+check(
+  'null node returns false',
+  contentSandbox.isEditable(null),
+  false
+);
+check(
+  'deeply nested editable element returns true',
+  contentSandbox.isEditable({
+    isContentEditable: false,
+    parentNode: {
+      isContentEditable: false,
+      parentNode: {
+        isContentEditable: false,
+        parentNode: { isContentEditable: true }
+      }
+    }
+  }),
+  true
+);
+check(
+  'deeply nested non-editable chain returns false',
+  contentSandbox.isEditable({
+    isContentEditable: false,
+    parentNode: {
+      isContentEditable: false,
+      parentNode: {
+        isContentEditable: false,
+        parentNode: { isContentEditable: false, parentNode: null }
+      }
+    }
+  }),
+  false
+);
 
 // =============================================================================
 // updateRegexes()
