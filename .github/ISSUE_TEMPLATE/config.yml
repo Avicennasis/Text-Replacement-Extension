@@ -1,5 +1,0 @@
-blank_issues_enabled: true
-contact_links:
-  - name: Security issue
-    url: https://github.com/Avicennasis/Text-Replacement-Extension/blob/main/SECURITY.md
-    about: Please report security issues by email, not as public GitHub issues.
