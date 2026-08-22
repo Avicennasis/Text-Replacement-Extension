@@ -19,6 +19,12 @@ on:
   pull_request:
     branches: [main, master]
 
+# Default-deny. This workflow only builds and validates, so a read-only
+# token is all it needs; without this block the job inherited the full
+# default GITHUB_TOKEN scope (CodeQL actions/missing-workflow-permissions).
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build & Validate
