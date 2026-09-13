@@ -946,20 +946,21 @@ function addReplacement() {
                 // Update UI instantly without a full table reload
                 addRowToTable(newOriginal, newReplacement, newCaseSensitive, true);
 
-                // Scroll the new row into view so the user can see it was added,
-                // especially when the table is long enough to require scrolling.
-                // Only scroll if the row is actually visible — if a search filter
-                // is active and hides the new row, scrolling would jump to nothing.
-                const newRow = document.querySelector('#replacementList tr:last-child');
-                if (newRow && !newRow.classList.contains('hidden-by-filter')) {
-                    newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
-
-                // If a search filter is active, re-apply it so the new row
-                // is hidden if it doesn't match the current search query.
+                // Re-apply an active search filter BEFORE deciding whether to
+                // scroll: filterRules() is what marks a non-matching row as
+                // 'hidden-by-filter', so filtering first means we only scroll
+                // to a row the user can actually see.
                 const searchBox = document.getElementById('searchBox');
                 if (searchBox && searchBox.value.trim()) {
                     filterRules(searchBox.value);
+                }
+
+                // Scroll the new row into view so the user can see it was added,
+                // especially when the table is long enough to require scrolling.
+                // Skip it when the active filter just hid the row.
+                const newRow = document.querySelector('#replacementList tr:last-child');
+                if (newRow && !newRow.classList.contains('hidden-by-filter')) {
+                    newRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
 
                 // Clear input fields so the user can add the next rule immediately
