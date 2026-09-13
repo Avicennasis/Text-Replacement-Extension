@@ -128,8 +128,9 @@ let statusTimeout = null;
 /**
  * Estimates the storage size (in bytes) of the wordMap object.
  * The browser stores data as JSON internally, so we measure the JSON
- * representation. We use Blob for an accurate byte count that handles
- * multi-byte Unicode characters correctly.
+ * representation. TextEncoder measures the UTF-8 byte length directly,
+ * which handles multi-byte Unicode characters correctly without allocating
+ * a Blob.
  *
  * @param {Object} wordMap - The replacement rules object.
  * @returns {number} - Estimated size in bytes.
@@ -138,7 +139,7 @@ function estimateStorageSize(wordMap) {
     // Chrome stores each key's value independently. The storage quota applies
     // to the JSON-serialized value plus the key name. We measure just the value
     // and add a small overhead for the "wordMap" key name itself.
-    const valueSize = new Blob([JSON.stringify(wordMap)]).size;
+    const valueSize = new TextEncoder().encode(JSON.stringify(wordMap)).length;
     const keyOverhead = 9; // "wordMap" (7 chars) + 2 bytes for JSON quotes = 9 bytes
     return valueSize + keyOverhead;
 }

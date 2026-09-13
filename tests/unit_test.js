@@ -438,6 +438,7 @@ const manageSandbox = {
   clearTimeout,
   Set,
   Blob,
+  TextEncoder,
   JSON,
   Object,
   Array,
