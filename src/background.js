@@ -75,13 +75,11 @@ chrome.runtime.onInstalled.addListener(() => {
 // giving the user a better interface to manage their replacement rules.
 //
 // CROSS-BROWSER COMPATIBILITY:
-// Manifest V3 uses 'chrome.action'. The 'chrome.browserAction' fallback
-// was for Manifest V2 but is effectively dead code since both manifests
-// in this project are MV3-only. It is retained as a zero-cost safety net
-// in case the extension is ever backported to MV2 for legacy browser support.
+// Both builds are Manifest V3, so the toolbar API is always 'chrome.action'
+// (the old Manifest V2 name was 'chrome.browserAction', which has no MV2
+// build here to support).
 // -----------------------------------------------------------------------------
-const actionAPI = chrome.action || chrome.browserAction;
-actionAPI.onClicked.addListener(() => {
+chrome.action.onClicked.addListener(() => {
   Logger.debug('Extension icon clicked, opening management page');
   chrome.tabs.create({ url: 'manage.html' }, () => {
     // Check for errors — could fail if the browser is shutting down or
