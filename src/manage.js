@@ -1278,11 +1278,11 @@ function importRules(file) {
                     Logger.debug('Import mode: MERGE');
                 }
 
-                // Double-check: Remove reserved keys that could have entered storage through manual
-                // tampering, ensuring the merged result is clean before saving.
-                for (const key of RESERVED_KEYS) {
-                    delete finalRules[key];
-                }
+                // finalRules needs no extra reserved-key pass here:
+                // importedRules comes from validateImportedRules() (which
+                // rejects reserved keys) and existingRules from safeWordMap()
+                // (which drops them), and the JSON.parse reviver already
+                // stripped them during import.
 
                 // Check if result exceeds rule limit
                 const finalCount = Object.keys(finalRules).length;
