@@ -8,7 +8,6 @@ improvements are all welcome.
 ```bash
 git clone https://github.com/Avicennasis/Text-Replacement-Extension.git
 cd Text-Replacement-Extension
-pre-commit install
 ```
 
 There is no `package.json` and no build tooling to install — the extension is
@@ -31,14 +30,14 @@ identical apart from `manifest.json`.
 
 ## Code style
 
-Lint/format hooks are wired via pre-commit; run `pre-commit run --all-files`.
-All resources must stay bundled locally — CI fails on any external URL in
-non-comment source code.
+There is no separate lint/format tool to install. Follow `.editorconfig` and
+the style of the surrounding file. All resources must stay bundled locally —
+CI fails on any external URL in non-comment source code.
 
 ## PR checklist
 
 - [ ] Tests added or updated; the suite above is green locally.
-- [ ] `pre-commit run --all-files` is clean.
+- [ ] `./build.sh` and all standalone Node test scripts above are green.
 - [ ] README and docs updated if public behavior changed.
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`.
 
