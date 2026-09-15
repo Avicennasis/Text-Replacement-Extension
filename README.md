@@ -174,12 +174,25 @@ Text-Replacement-Extension/
 ├── manifests/
 │   ├── chromium/manifest.json        # MV3 manifest for Chrome/Edge/Opera
 │   └── firefox/manifest.json         # MV3 manifest for Firefox (with gecko settings)
-├── tests/                            # Benchmarks and test utilities
-│   ├── benchmark.js                  # Replacement engine correctness & performance tests
+├── tests/                            # Standalone Node test scripts (run by CI)
+│   ├── benchmark.js                  # Replacement engine correctness & performance
 │   ├── benchmark_performance.py      # Playwright-based UI performance benchmark
-│   └── mock_chrome.js                # Mock browser APIs for Playwright tests
-├── .github/workflows/test.yml        # Automated build & security checks
+│   ├── build_regex_test.js           # Regex builder + longest-match ordering
+│   ├── mock_chrome.js                # Mock browser APIs for the tests
+│   ├── safe_word_map_test.js         # Prototype-pollution-safe rule maps
+│   ├── security_logging_test.js      # Log redaction / privacy checks
+│   ├── should_process_node_test.js   # Node-skipping (inputs, SVG, editable) checks
+│   ├── storage_size_test.js          # estimateStorageSize / quota checks
+│   ├── unit_test.js                  # Utility-function unit tests
+│   ├── validate_import_test.js       # Import file validation
+│   └── BENCHMARK_RESULTS.md          # Recorded benchmark results
+├── docs/
+│   └── audits/                       # in-house-spec audit records
+├── .github/workflows/                # test.yml (build+validate), codeql.yml,
+│                                     # scorecard.yml, stale.yml, release-drafter.yml
 ├── build.sh                          # Build script → dist/chromium/ and dist/firefox/
+├── CHANGELOG.md                      # Version history (Keep a Changelog)
+├── renovate.json                     # Dependency-update config
 ├── LICENSE                           # MIT License
 └── README.md
 ```
