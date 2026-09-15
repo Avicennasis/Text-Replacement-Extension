@@ -178,7 +178,7 @@ Text-Replacement-Extension/
 │   ├── benchmark.js                  # Replacement engine correctness & performance tests
 │   ├── benchmark_performance.py      # Playwright-based UI performance benchmark
 │   └── mock_chrome.js                # Mock browser APIs for Playwright tests
-├── .github/workflows/ci.yml         # Automated build & security checks
+├── .github/workflows/test.yml        # Automated build & security checks
 ├── build.sh                          # Build script → dist/chromium/ and dist/firefox/
 ├── LICENSE                           # MIT License
 └── README.md
