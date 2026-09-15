@@ -324,11 +324,12 @@ function updateRegexes(wordMap) {
  * - SCRIPT/STYLE/NOSCRIPT: Break website functionality or inject code
  * - TEXTAREA/INPUT: Corrupt text the user is actively typing
  */
-// SVG is included because replacing text inside SVG elements could break
-// rendered charts, diagrams, and other vector graphics. In HTML documents,
-// the HTML parser normalizes tagName to uppercase ('SVG'), but in XHTML or
-// when elements are created via createElementNS, tagName may be lowercase
-// ('svg'). We include both forms for safety.
+// SVG is included here as a cheap tag-name short-circuit only. The
+// namespaceURI check below is what authoritatively catches every node inside
+// an <svg> subtree at any depth, so these two entries are defence-in-depth,
+// not the sole guard. Both cases are listed because tagName casing depends on
+// how the element was created: the HTML parser normalizes it to uppercase
+// ('SVG'), while XHTML / createElementNS keeps lowercase ('svg').
 const IGNORED_TAGS = new Set([
     'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SVG', 'svg'
 ]);
