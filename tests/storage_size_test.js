@@ -8,24 +8,12 @@ const path = require('path');
 // the file load without errors so we can call estimateStorageSize() in isolation.
 // ---------------------------------------------------------------------------
 
-// Mock Blob for Node.js environment to accurately count UTF-8 bytes
-class MockBlob {
-    constructor(parts) {
-        this.size = parts.reduce((acc, part) => {
-            if (typeof part === 'string') {
-                return acc + Buffer.byteLength(part, 'utf8');
-            }
-            return acc + (part.length || 0);
-        }, 0);
-    }
-}
-
 const sandbox = {
     console: console,
     setTimeout: setTimeout,
     clearTimeout: clearTimeout,
     Set: Set,
-    Blob: MockBlob,
+    TextEncoder,
     JSON: JSON,
     Object: Object,
     Array: Array,
